@@ -1,0 +1,42 @@
+# Translation file
+
+#
+# Generic
+#
+
+# Module label 'ModuleSaftName'
+ModuleSaftName = Saft
+# Module description 'ModuleSaftDesc'
+ModuleSaftDesc = Saft description
+
+#
+# Admin page
+#
+SaftSetup = Saft setup
+Settings = Settings
+SaftSetupPage = Saft setup page
+NewSection=New section
+SAFT_MYPARAM1 = My param 1
+SAFT_MYPARAM1Tooltip = My param 1 tooltip
+SAFT_MYPARAM2=My param 2
+SAFT_MYPARAM2Tooltip=My param 2 tooltip
+
+
+#
+# About page
+#
+About = About
+SaftAbout = About Saft
+SaftAboutPage = Saft about page
+
+#
+# Sample page
+#
+SaftArea = Home Saft
+MyPageName = My page name
+
+#
+# Sample widget
+#
+MyWidget = My widget
+MyWidgetDescription = My widget description
