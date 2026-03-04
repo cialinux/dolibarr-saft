@@ -83,6 +83,9 @@ if ($action === 'validate') {
             if (!empty($res['auth_error'])) {
                 $error = '🔒 ' . $res['auth_error'] . '<br><br>Verifique o token configurado no <a href="admin/setup.php">setup do módulo</a>.';
                 // Token inválido - não processar nada
+            } elseif (!empty($res['rate_limit_error'])) {
+                $error = '❌ ' . $res['rate_limit_error'];
+                // Quota excedida - não processar nada
             } elseif (empty($res['data'])) {
                 $error = 'Erro ao validar SAF-T.';
             } else {

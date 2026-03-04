@@ -122,6 +122,176 @@ function saft_url_with_params($baseUrl, $params)
 }
 
 /**
+ * Resolve endpoint automaticamente por modo:
+ * - com token => endpoint privado
+ * - sem token => endpoint público
+ *
+ * @param string $configuredUrl URL configurada no setup
+ * @param string $apiToken token opcional
+ * @param string $publicEndpoint endpoint público (ex: /api/public/validate/preview)
+ * @param string $privateEndpoint endpoint privado (ex: /api/private/validate/preview)
+ * @return string
+ */
+function saft_resolve_mode_endpoint_url($configuredUrl, $apiToken, $publicEndpoint, $privateEndpoint)
+{
+    $configuredUrl = trim((string) $configuredUrl);
+    if ($configuredUrl === '') return '';
+
+    $p = @parse_url($configuredUrl);
+    if (!is_array($p) || empty($p['host'])) return $configuredUrl;
+
+    $scheme = !empty($p['scheme']) ? $p['scheme'] : 'https';
+    $host   = $p['host'];
+    $port   = !empty($p['port']) ? (':'.$p['port']) : '';
+
+    $endpoint = !empty($apiToken) ? $privateEndpoint : $publicEndpoint;
+    return $scheme.'://'.$host.$port.$endpoint;
+}
+
+/**
+ * Consome quota (rate limit) na API correta de forma automática:
+ * - com token => /api/private/consume-quota + X-API-Key
+ * - sem token => /api/public/consume-quota
+ *
+ * @param string $configuredPreviewUrl
+ * @param string $apiToken
+ * @param bool $verifyTls
+ * @param int $timeout
+ * @return array {ok, status, rate_limit?, auth_error?, rate_limit_error?, error?, attempts[]}
+ */
+function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false, $timeout = 10)
+{
+    $quotaUrl = saft_resolve_mode_endpoint_url(
+        $configuredPreviewUrl,
+        $apiToken,
+        '/api/public/consume-quota',
+        '/api/private/consume-quota'
+    );
+
+    if ($quotaUrl === '') {
+        return array(
+            'ok' => false,
+            'status' => 0,
+            'error' => 'Missing api_url (SAFT_API_URL)',
+            'attempts' => array(),
+            'rate_limit' => null,
+        );
+    }
+
+    $attempts = array();
+    $rateLimitInfo = null;
+    $authError = null;
+    $rateLimitError = null;
+
+    $candidates = saft_build_api_candidates($quotaUrl);
+    foreach ($candidates as $url) {
+        $headers = array('Accept: application/json', 'Content-Type: application/json');
+        if (!empty($apiToken)) {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $url,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => '{}',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => (int) $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        preg_match('/X-RateLimit-Limit:\s*(\d+)/i', $headersRaw, $m1);
+        preg_match('/X-RateLimit-Used:\s*(\d+)/i', $headersRaw, $m2);
+        preg_match('/X-RateLimit-Remaining:\s*(\d+)/i', $headersRaw, $m3);
+        if (!empty($m1[1])) {
+            $rateLimitInfo = array(
+                'limit' => (int) $m1[1],
+                'used' => !empty($m2[1]) ? (int) $m2[1] : 0,
+                'remaining' => !empty($m3[1]) ? (int) $m3[1] : 0,
+            );
+        }
+
+        $attempts[] = array(
+            'url' => $url,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+
+        if ($status === 401 || $status === 403) {
+            $authError = 'Token API inválido ou expirado. Verifique no setup do módulo.';
+            continue;
+        }
+
+        if ($status === 429) {
+            $decoded = is_string($body) ? json_decode($body, true) : null;
+            if (is_array($decoded) && !empty($decoded['error'])) {
+                $rateLimitError = $decoded['error'];
+            } else {
+                $rateLimitError = 'Limite de consultas diárias excedido. Tente novamente depois de 24h.';
+            }
+            return array(
+                'ok' => false,
+                'status' => 429,
+                'attempts' => $attempts,
+                'rate_limit' => $rateLimitInfo,
+                'rate_limit_error' => $rateLimitError,
+                'auth_error' => $authError,
+            );
+        }
+
+        if ($status === 200) {
+            return array(
+                'ok' => true,
+                'status' => 200,
+                'attempts' => $attempts,
+                'rate_limit' => $rateLimitInfo,
+                'rate_limit_error' => null,
+                'auth_error' => $authError,
+            );
+        }
+    }
+
+    return array(
+        'ok' => false,
+        'status' => 0,
+        'attempts' => $attempts,
+        'rate_limit' => $rateLimitInfo,
+        'rate_limit_error' => $rateLimitError,
+        'auth_error' => $authError,
+        'error' => 'Não foi possível consumir quota na API.',
+    );
+}
+
+/**
  * Valida um token API chamando o endpoint do saft-validator
  * 
  * @param string $apiToken Token a validar
@@ -211,6 +381,14 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
     $used = null;
     $rateLimitInfo = null;  // SEMPRE null - só preenchido se API retornar headers
     $apiAuthError = null;
+    $rateLimitError = null;  // Novo: erro de rate limit (quota excedida)
+
+    $apiUrl = saft_resolve_mode_endpoint_url(
+        $apiUrl,
+        $apiToken,
+        '/api/public/validate/preview',
+        '/api/private/validate/preview'
+    );
 
     if (empty($apiUrl)) {
         return array(
@@ -323,6 +501,21 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             continue;  // tentar próxima candidata
         }
 
+        // Verificar erro de rate limit (quota excedida)
+        if ($status === 429) {
+            if (is_string($body)) {
+                $decoded = json_decode($body, true);
+                if (is_array($decoded) && !empty($decoded['error'])) {
+                    $rateLimitError = $decoded['error'];
+                } else {
+                    $rateLimitError = 'Limite de consultas diárias excedido. Tente novamente depois de 24h.';
+                }
+            } else {
+                $rateLimitError = 'Limite de consultas diárias excedido.';
+            }
+            continue;  // tentar próxima candidata
+        }
+
         // sucesso JSON
         if ($status === 200 && stripos($ct, 'application/json') !== false && is_string($body)) {
             $decoded = json_decode($body, true);
@@ -341,5 +534,6 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
         'attempts' => $attempts,
         'rate_limit' => $rateLimitInfo,
         'auth_error' => $apiAuthError,
+        'rate_limit_error' => $rateLimitError,
     );
 }
