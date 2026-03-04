@@ -81,6 +81,11 @@ if ($action === 'validate') {
                 $error = 'Erro ao validar SAF-T.';
             } else {
                 $data = $res['data'];
+                // Capturar limites de rate limit se disponíveis
+                if (!empty($res['rate_limit'])) {
+                    $rateLimit = $res['rate_limit'];
+                }
+                $apiMode = !empty($apiToken) ? 'private' : 'public';
             }
             $debug = json_encode($res, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         }

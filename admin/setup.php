@@ -152,7 +152,6 @@ $item->nameText = 'SAFT API Token (opcional)';
 $item->helpText = 'API key/token privado gerado no dashboard do saft-validator. Se vazio, usa a API pública com limite de 5 consultas/dia.';
 $item->fieldAttr['placeholder'] = 'Gere um token no dashboard saft-validator';
 $item->cssClass = 'minwidth500';
-$item->fieldAttr['type'] = 'password';
 
 // End of definition of parameters
 $setupnotempty += count($formSetup->items);

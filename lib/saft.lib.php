@@ -262,3 +262,4 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
         'rate_limit' => $rateLimitInfo,
         'auth_error' => $apiAuthError,
     );
+}
