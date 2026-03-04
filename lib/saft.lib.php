@@ -122,6 +122,75 @@ function saft_url_with_params($baseUrl, $params)
 }
 
 /**
+ * Valida um token API chamando o endpoint do saft-validator
+ * 
+ * @param string $apiToken Token a validar
+ * @param string $baseUrl URL base da API (ex: https://saft-validator.dev.cialinux.com)
+ * @param bool $verifyTls Se deve verificar certificado SSL
+ * @return array {valid: bool, user_data?: array, error?: string}
+ */
+function saft_validate_api_token($apiToken, $baseUrl, $verifyTls = false)
+{
+    if (empty($apiToken)) {
+        return array('valid' => false, 'error' => 'Token vazio');
+    }
+
+    // Extrair base URL (remover path se existir)
+    $p = @parse_url($baseUrl);
+    if (!is_array($p) || empty($p['host'])) {
+        return array('valid' => false, 'error' => 'URL base inválida');
+    }
+
+    $scheme = !empty($p['scheme']) ? $p['scheme'] : 'https';
+    $host = $p['host'];
+    $port = !empty($p['port']) ? (':'.$p['port']) : '';
+    
+    // Endpoint de validação de token privado - usar /api/private/me
+    $validateUrl = $scheme.'://'.$host.$port.'/api/private/me';
+
+    $ch = curl_init();
+    curl_setopt_array($ch, array(
+        CURLOPT_URL => $validateUrl,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 10,
+        CURLOPT_HTTPHEADER => array(
+            'X-API-Key: ' . $apiToken,
+            'Accept: application/json',
+        ),
+    ));
+
+    if (!$verifyTls) {
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    }
+
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlErr = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlErr) {
+        return array('valid' => false, 'error' => 'Erro de conexão: ' . $curlErr);
+    }
+
+    if ($httpCode === 200 && is_string($response)) {
+        $data = json_decode($response, true);
+        if (is_array($data) && !empty($data['nif'])) {
+            return array(
+                'valid' => true,
+                'user_data' => $data,
+            );
+        }
+    }
+
+    if ($httpCode === 401 || $httpCode === 403) {
+        return array('valid' => false, 'error' => 'Token inválido ou expirado');
+    }
+
+    return array('valid' => false, 'error' => 'Resposta inesperada do servidor (HTTP '.$httpCode.')');
+}
+
+/**
  * Chama a API /validate/preview enviando multipart file=@xmlfile
  *
  * @param string $xmlFilePath  Caminho do XML gravado no disco
@@ -140,7 +209,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
     $attempts = array();
     $data = null;
     $used = null;
-    $rateLimitInfo = array('limit' => 5, 'used' => 0, 'remaining' => 5);
+    $rateLimitInfo = null;  // SEMPRE null - só preenchido se API retornar headers
     $apiAuthError = null;
 
     if (empty($apiUrl)) {
@@ -149,7 +218,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'used_url' => null,
             'attempts' => array(),
             'error' => 'Missing api_url (SAFT_API_URL)',
-            'rate_limit' => $rateLimitInfo,
+            'rate_limit' => null,
         );
     }
 
@@ -159,7 +228,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'used_url' => null,
             'attempts' => array(),
             'error' => 'XML file not readable: '.$xmlFilePath,
-            'rate_limit' => $rateLimitInfo,
+            'rate_limit' => null,
         );
     }
 
@@ -215,15 +284,18 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             $body = substr($resp, $hdrSize);
         }
 
-        // Extrair headers de rate limit
+        // Extrair headers de rate limit - SÓ se a API enviar
         preg_match('/X-RateLimit-Limit:\s*(\d+)/i', $headersRaw, $m1);
         preg_match('/X-RateLimit-Used:\s*(\d+)/i', $headersRaw, $m2);
         preg_match('/X-RateLimit-Remaining:\s*(\d+)/i', $headersRaw, $m3);
         
+        // APENAS preencher se API retornar os headers
         if (!empty($m1[1])) {
-            $rateLimitInfo['limit'] = (int)$m1[1];
-            $rateLimitInfo['used'] = !empty($m2[1]) ? (int)$m2[1] : 0;
-            $rateLimitInfo['remaining'] = !empty($m3[1]) ? (int)$m3[1] : 0;
+            $rateLimitInfo = array(
+                'limit' => (int)$m1[1],
+                'used' => !empty($m2[1]) ? (int)$m2[1] : 0,
+                'remaining' => !empty($m3[1]) ? (int)$m3[1] : 0,
+            );
         }
 
         $bodyHead = is_string($body) ? substr($body, 0, 1200) : '';

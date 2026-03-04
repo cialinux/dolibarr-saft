@@ -27,7 +27,7 @@ $apiToken      = getDolGlobalString('SAFT_API_TOKEN', '');
 $verifyTls     = (bool) getDolGlobalInt('SAFT_VERIFY_TLS', 0);
 $perPage       = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
 
-$rateLimit = array('limit' => 5, 'used' => 0, 'remaining' => 5);  // Default públicos
+$rateLimit = null;  // Sempre obtido da resposta da API
 $apiMode = 'public';  // 'public' ou 'private'
 if (!empty($apiToken)) {
     $apiMode = 'private';
@@ -41,7 +41,11 @@ print '<div class="fichecenter"><div class="card" style="padding:16px;">';
 // Mostrar modo e limites
 print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '<strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
-print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+if ($rateLimit !== null && isset($rateLimit['limit'])) {
+    print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+} else {
+    print ' | <strong>Limites:</strong> Aguardando resposta da API';
+}
 print ' | <strong>file size limit:</strong> max 1mb';
 print '</div>';
 print '<br>';

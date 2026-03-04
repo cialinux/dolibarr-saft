@@ -39,8 +39,8 @@ function saftLoadXml($token) {
 $error = null;
 $data  = null;
 $debug = null;
-$rateLimit = array('limit' => 5, 'used' => 0, 'remaining' => 5);  // Default públicos
-$apiMode = 'public';  // 'public' ou 'private'
+$rateLimit = null;  // Será preenchido pela resposta da API
+$apiMode = !empty($apiToken) ? 'private' : 'public';  // Modo baseado na configuração
 
 if ($action === 'validate') {
 
@@ -74,18 +74,19 @@ if ($action === 'validate') {
                 ]
             );
 
+            // SEMPRE capturar limites da resposta (se disponível)
+            if (!empty($res['rate_limit'])) {
+                $rateLimit = $res['rate_limit'];
+            }
+
             // Se temos erro de autenticação do token
             if (!empty($res['auth_error'])) {
-                $error = $res['auth_error'];
+                $error = '🔒 ' . $res['auth_error'] . '<br><br>Verifique o token configurado no <a href="admin/setup.php">setup do módulo</a>.';
+                // Token inválido - não processar nada
             } elseif (empty($res['data'])) {
                 $error = 'Erro ao validar SAF-T.';
             } else {
                 $data = $res['data'];
-                // Capturar limites de rate limit se disponíveis
-                if (!empty($res['rate_limit'])) {
-                    $rateLimit = $res['rate_limit'];
-                }
-                $apiMode = !empty($apiToken) ? 'private' : 'public';
             }
             $debug = json_encode($res, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         }
@@ -110,7 +111,12 @@ print '      <h2>Validador SAF-T (Portugal)</h2>';
 print '      <div class="opacitymedium">API: '.dol_escape_htmltag($apiUrlPreview).'</div>';
 print '      <div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '        <strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
-print '        | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+if ($rateLimit) {
+    print '        | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+    print '        | <strong>Restantes:</strong> '.$rateLimit['remaining'];
+} else {
+    print '        | <strong>Limites:</strong> Aguardando resposta da API';
+}
 print '        | <strong>file size limit:</strong> max 1mb';
 print '      </div>';
 

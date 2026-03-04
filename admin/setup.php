@@ -181,6 +181,40 @@ if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {
  * Actions
  */
 
+// Validar token API antes de salvar
+if ($action == 'update' && GETPOSTISSET('SAFT_API_TOKEN')) {
+        $tokenToValidate = GETPOST('SAFT_API_TOKEN', 'alpha');
+        $apiUrl = GETPOST('SAFT_API_URL', 'alpha');
+        $verifyTls = GETPOSTINT('SAFT_VERIFY_TLS');
+        
+        // Se token foi fornecido (não vazio), validar
+        if (!empty($tokenToValidate)) {
+                $validation = saft_validate_api_token($tokenToValidate, $apiUrl, (bool) $verifyTls);
+                
+                if (!$validation['valid']) {
+                        setEventMessages('❌ Token inválido: ' . $validation['error'], null, 'errors');
+                        $action = 'edit'; // Voltar para edição sem salvar
+                } else {
+                        // Token válido - mostrar dados do usuário
+                        $userData = $validation['user_data'];
+                        $nif = !empty($userData['nif']) ? $userData['nif'] : 'N/A';
+                        $email = !empty($userData['email']) ? $userData['email'] : 'N/A';
+                        $accountType = !empty($userData['account_type']) ? $userData['account_type'] : 'limited';
+                        $dailyLimit = !empty($userData['daily_limit']) ? $userData['daily_limit'] : 50;
+                        
+                        setEventMessages(
+                                '✅ Token validado com sucesso!<br>'.
+                                '👤 NIF: ' . $nif . '<br>'.
+                                '📧 Email: ' . $email . '<br>'.
+                                '🔑 Tipo de conta: ' . $accountType . '<br>'.
+                                '📊 Limite diário: ' . $dailyLimit . ' consultas',
+                                null,
+                                'mesgs'
+                        );
+                }
+        }
+}
+
 // For retrocompatibility Dolibarr < 15.0
 if (versioncompare(explode('.', DOL_VERSION), array(15)) < 0 && $action == 'update' && !empty($user->admin)) {
         $formSetup->saveConfFromPost();
