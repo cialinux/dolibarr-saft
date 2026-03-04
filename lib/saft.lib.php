@@ -182,6 +182,7 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
     $rateLimitInfo = null;
     $authError = null;
     $rateLimitError = null;
+    $lastStatus = 0;
 
     $candidates = saft_build_api_candidates($quotaUrl);
     foreach ($candidates as $url) {
@@ -209,6 +210,7 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
         $resp = curl_exec($ch);
         $curlErr = curl_error($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
         $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
         $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
         $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
@@ -282,7 +284,7 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
 
     return array(
         'ok' => false,
-        'status' => 0,
+        'status' => $lastStatus,
         'attempts' => $attempts,
         'rate_limit' => $rateLimitInfo,
         'rate_limit_error' => $rateLimitError,

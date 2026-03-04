@@ -123,6 +123,58 @@ if ($action === 'import') {
         $httpCode = !empty($quota['status']) ? (int) $quota['status'] : 0;
         $rateLimit = !empty($quota['rate_limit']) ? $quota['rate_limit'] : null;
 
+        // Fallback robusto: se endpoint consume-quota não existir/falhar,
+        // consumir quota via endpoint de preview (que já está estável no servidor)
+        if (empty($quota['ok']) && empty($quota['auth_error']) && empty($quota['rate_limit_error'])) {
+            $fileForQuota = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
+            if (is_readable($fileForQuota)) {
+                $quotaFallback = saft_call_preview_api(
+                    $fileForQuota,
+                    1,
+                    1,
+                    array(
+                        'api_url' => $apiUrlPreview,
+                        'api_token' => $apiToken,
+                        'verify_tls' => $verifyTls,
+                        'timeout' => 30,
+                    )
+                );
+
+                if (!empty($quotaFallback['rate_limit'])) {
+                    $rateLimit = $quotaFallback['rate_limit'];
+                }
+
+                if (!empty($quotaFallback['auth_error'])) {
+                    $quota = array(
+                        'ok' => false,
+                        'status' => 401,
+                        'auth_error' => $quotaFallback['auth_error'],
+                        'rate_limit_error' => null,
+                        'rate_limit' => $rateLimit,
+                        'error' => null,
+                    );
+                } elseif (!empty($quotaFallback['rate_limit_error'])) {
+                    $quota = array(
+                        'ok' => false,
+                        'status' => 429,
+                        'auth_error' => null,
+                        'rate_limit_error' => $quotaFallback['rate_limit_error'],
+                        'rate_limit' => $rateLimit,
+                        'error' => null,
+                    );
+                } elseif (!empty($quotaFallback['data'])) {
+                    $quota = array(
+                        'ok' => true,
+                        'status' => 200,
+                        'auth_error' => null,
+                        'rate_limit_error' => null,
+                        'rate_limit' => $rateLimit,
+                        'error' => null,
+                    );
+                }
+            }
+        }
+
         if (!empty($quota['auth_error'])) {
             setEventMessages('🔒 '.$quota['auth_error'], null, 'errors');
         } elseif (!empty($quota['rate_limit_error'])) {
