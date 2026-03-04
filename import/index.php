@@ -108,7 +108,7 @@ if ($action === 'preview' && $tokenxml) {
 }
 
 /* ============================================================
- * FASE 3 – IMPORT
+ * FASE 3 – IMPORT (COM RATE LIMITING)
  * ============================================================ */
 if ($action === 'import') {
     print load_fiche_titre('Fase 3: Resultado da importação');
@@ -118,15 +118,86 @@ if ($action === 'import') {
     if (empty($indexes)) {
         print '<div class="warning">Nenhuma fatura selecionada.</div>';
     } else {
-        $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
-        $invoices = SaftParser::loadCustomerInvoices($file);
+        // 🔒 VERIFICAR RATE LIMIT ANTES DE IMPORTAR
+        $consumeUrl = $apiUrlPreview;
+        // Remover o path "/api/public/validate/preview" e adicionar "/api/public/consume-quota"
+        $apiBaseUrl = preg_replace('#/api/public/validate/preview.*$#', '', $consumeUrl);
+        $consumeQuotaUrl = $apiBaseUrl . '/api/public/consume-quota';
+        
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $consumeQuotaUrl,
+            CURLOPT_POST => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => array('Content-Type: application/json'),
+        ));
+        
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+        
+        $response = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $headersRaw = (string) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        curl_close($ch);
+        
+        // Capturar headers de rate limit da resposta
+        $rateLimit = null;
+        if ($response) {
+            preg_match('/X-RateLimit-Limit:\s*(\d+)/i', substr($response, 0, 1000), $m1);
+            preg_match('/X-RateLimit-Used:\s*(\d+)/i', substr($response, 0, 1000), $m2);
+            preg_match('/X-RateLimit-Remaining:\s*(\d+)/i', substr($response, 0, 1000), $m3);
+            
+            if (!empty($m1[1])) {
+                $rateLimit = array(
+                    'limit' => (int)$m1[1],
+                    'used' => !empty($m2[1]) ? (int)$m2[1] : 0,
+                    'remaining' => !empty($m3[1]) ? (int)$m3[1] : 0,
+                );
+            }
+        }
+        
+        // Se quota foi excedida, bloquetar importação
+        if ($httpCode === 429) {
+            setEventMessages('❌ Limite de consultas excedido! Aguarde 24h ou use API privada.', null, 'errors');
+            if ($rateLimit) {
+                setEventMessages('📊 Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' | Restante: '.$rateLimit['remaining'], null, 'warnings');
+            }
+        } elseif ($httpCode !== 200) {
+            setEventMessages('⚠️ Erro ao verificar quota: HTTP '.$httpCode, null, 'warnings');
+        } else {
+            // Sucesso: quota consumida, prosseguir com importação
+            setEventMessages('✅ Quota consumida. Iniciando importação de '.count($indexes).' fatura(s)...', null, 'mesgs');
+        }
+        
+        // Mostrar status de rate limit
+        if ($rateLimit) {
+            print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
+            print '<strong>📊 Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+            print ' | <strong>Restantes:</strong> '.$rateLimit['remaining'];
+            print '</div>';
+        }
+        
+        // Se não conseguiu consumir quota, não prosseguir
+        if ($httpCode !== 200) {
+            print '<div style="margin:12px 0; padding:8px; background:#ffcccc; border-radius:4px;">';
+            print '❌ Importação bloqueada: não foi possível consumir quota.';
+            print '</div>';
+        } else {
+            // PROSSEGUIR COM A IMPORTAÇÃO
+            print '<div style="margin:12px 0;">';
+            
+            $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
+            $invoices = SaftParser::loadCustomerInvoices($file);
 
-        $importer = new SaftImport($db);
+            $importer = new SaftImport($db);
 
-        foreach ($indexes as $i) {
-            $inv = $invoices[(int)$i];
+            foreach ($indexes as $i) {
+                $inv = $invoices[(int)$i];
 
-            $db->begin();
+                $db->begin();
 
             $socid = $importer->findOrCreateThirdpartyFromSaft($inv, $user);
             if ($socid <= 0) {
@@ -151,8 +222,10 @@ if ($action === 'import') {
             $db->commit();
             print '<div class="ok">Fatura '.$inv['number'].' criada (ID '.$id.')</div>';
         }
-    }
-}
+            print '</div>';  // Fechar div "margin:12px 0;"
+        }  // Fechar else (if $httpCode === 200)
+    }  // Fechar else (if empty($indexes))
+}  // Fechar if ($action === 'import')
 
 /* ============================================================
  * FORM UPLOAD
