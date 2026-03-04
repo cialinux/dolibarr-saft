@@ -289,6 +289,13 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
         preg_match('/X-RateLimit-Used:\s*(\d+)/i', $headersRaw, $m2);
         preg_match('/X-RateLimit-Remaining:\s*(\d+)/i', $headersRaw, $m3);
         
+        // DEBUG: Log dos headers para troubleshooting
+        $debugRateHeaders = array(
+            'X-RateLimit-Limit' => !empty($m1[1]) ? $m1[1] : 'NOT FOUND',
+            'X-RateLimit-Used' => !empty($m2[1]) ? $m2[1] : 'NOT FOUND',
+            'X-RateLimit-Remaining' => !empty($m3[1]) ? $m3[1] : 'NOT FOUND',
+        );
+        
         // APENAS preencher se API retornar os headers
         if (!empty($m1[1])) {
             $rateLimitInfo = array(
@@ -307,6 +314,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'curl_error' => $curlErr ? $curlErr : null,
             'headers_head_800' => substr((string)$headersRaw, 0, 800),
             'body_head_1200' => $bodyHead,
+            'debug_rate_headers' => $debugRateHeaders,  // DEBUG
         );
 
         // Verificar erro de autenticação

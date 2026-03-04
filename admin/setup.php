@@ -143,14 +143,16 @@ $item->cssClass = 'minwidth100';
 // Debug do client (log/diagnóstico dentro do Dolibarr)
 $item = $formSetup->newItem('SAFT_CLIENT_DEBUG')->setAsYesNo();
 $item->nameText = 'Client debug (logs)';
-$item->helpText = 'Mostra informações de debug da chamada à API (útil para diagnosticar 404/porta 2000/SSL).';
-$item->defaultFieldValue = '0';
+$item->helpText = 'Mostra informações de debug da chamada à API (útil para diagnosticar 404/porta 2000/SSL/rate limits).<br><strong>Recomendado: SIM</strong> durante testes.';
+$item->defaultFieldValue = '1';  // Habilitado por padrão para troubleshooting
 
 // Token/API Key para usar a API privada (opcional - se não configurado, usa API pública)
 $item = $formSetup->newItem('SAFT_API_TOKEN');
-$item->nameText = 'SAFT API Token (opcional)';
-$item->helpText = 'API key/token privado gerado no dashboard do saft-validator. Se vazio, usa a API pública com limite de 5 consultas/dia.';
-$item->fieldAttr['placeholder'] = 'Gere um token no dashboard saft-validator';
+$item->nameText = 'SAFT API Token (OPCIONAL)';
+$item->helpText = '⚠️ DEIXE VAZIO para usar a API PÚBLICA (5 consultas/dia por IP).<br>'.
+                  'Ou insira um token privado gerado no dashboard do saft-validator para limites maiores.<br>'.
+                  '<strong>Nota:</strong> Validação de token temporariamente desabilitada - foco na API pública primeiro.';
+$item->fieldAttr['placeholder'] = 'Deixe vazio para modo público';
 $item->cssClass = 'minwidth500';
 
 // End of definition of parameters
@@ -181,8 +183,9 @@ if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {
  * Actions
  */
 
-// Validar token API antes de salvar
-if ($action == 'update' && GETPOSTISSET('SAFT_API_TOKEN')) {
+// TEMPORARIAMENTE DESABILITADO - Focar primeiro na API pública
+// A validação de token será reativada depois que a API pública estiver funcionando
+if (false && $action == 'update' && GETPOSTISSET('SAFT_API_TOKEN')) {
         $tokenToValidate = GETPOST('SAFT_API_TOKEN', 'alpha');
         $apiUrl = GETPOST('SAFT_API_URL', 'alpha');
         $verifyTls = GETPOSTINT('SAFT_VERIFY_TLS');
