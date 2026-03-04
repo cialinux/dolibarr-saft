@@ -42,6 +42,31 @@ $debug = null;
 $rateLimit = null;  // Será preenchido pela resposta da API
 $apiMode = !empty($apiToken) ? 'private' : 'public';  // Modo baseado na configuração
 
+// Buscar limites imediatamente ao carregar a página (em vez de esperar validação)
+if (empty($rateLimit)) {
+    if (!empty($apiToken)) {
+        // Modo privado: buscar dados do usuário
+        $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
+        if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
+            $userData = $userInfo['data'];
+            $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 50;
+            $usageToday = !empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0;
+            $rateLimit = array(
+                'limit' => $dailyLimit,
+                'used' => $usageToday,
+                'remaining' => max(0, $dailyLimit - $usageToday),
+            );
+        }
+    } else {
+        // Modo público: fazer uma chamada leve à API para obter headers de limite
+        // (usaremos um POST vazio ao endpoint consume-quota apenas para ler headers)
+        $tempCheck = saft_consume_quota($apiUrlPreview, '', $verifyTls, 5);
+        if (!empty($tempCheck['rate_limit'])) {
+            $rateLimit = $tempCheck['rate_limit'];
+        }
+    }
+}
+
 if ($action === 'validate') {
 
     // 1) Se veio ficheiro novo, grava e gera tokenXml novo

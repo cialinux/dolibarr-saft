@@ -294,6 +294,82 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
 }
 
 /**
+ * Busca informações do usuário autenticado via /api/private/me
+ * 
+ * @param string $configuredUrl URL configurada no setup (ex: https://saft-validator.dev.cialinux.com/api/public/validate/preview)
+ * @param string $apiToken Token API
+ * @param bool $verifyTls Se deve verificar certificado SSL
+ * @return array {ok: bool, data?: array, error?: string}
+ */
+function saft_get_authenticated_user($configuredUrl, $apiToken, $verifyTls = false)
+{
+    if (empty($apiToken)) {
+        return array('ok' => false, 'error' => 'Token vazio');
+    }
+
+    // Resolver URL do endpoint /api/private/me
+    $meUrl = saft_resolve_mode_endpoint_url(
+        $configuredUrl,
+        $apiToken,
+        '',  // não usado para privado
+        '/api/private/me'
+    );
+
+    if (empty($meUrl)) {
+        return array('ok' => false, 'error' => 'URL base inválida');
+    }
+
+    $candidates = saft_build_api_candidates($meUrl);
+    $lastError = 'Não foi possível conectar à API';
+
+    foreach ($candidates as $url) {
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => array(
+                'X-API-Key: ' . $apiToken,
+                'Accept: application/json',
+            ),
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $response = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlErr) {
+            $lastError = 'Erro de conexão: ' . $curlErr;
+            continue;
+        }
+
+        if ($httpCode === 200 && is_string($response)) {
+            $data = json_decode($response, true);
+            if (is_array($data)) {
+                return array(
+                    'ok' => true,
+                    'data' => $data,
+                );
+            }
+        }
+
+        if ($httpCode === 401 || $httpCode === 403) {
+            return array('ok' => false, 'error' => 'Token inválido ou expirado');
+        }
+
+        $lastError = 'Resposta inesperada do servidor (HTTP '.$httpCode.')';
+    }
+
+    return array('ok' => false, 'error' => $lastError);
+}
+
+/**
  * Valida um token API chamando o endpoint do saft-validator
  * 
  * @param string $apiToken Token a validar
@@ -303,63 +379,19 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
  */
 function saft_validate_api_token($apiToken, $baseUrl, $verifyTls = false)
 {
-    if (empty($apiToken)) {
-        return array('valid' => false, 'error' => 'Token vazio');
-    }
-
-    // Extrair base URL (remover path se existir)
-    $p = @parse_url($baseUrl);
-    if (!is_array($p) || empty($p['host'])) {
-        return array('valid' => false, 'error' => 'URL base inválida');
-    }
-
-    $scheme = !empty($p['scheme']) ? $p['scheme'] : 'https';
-    $host = $p['host'];
-    $port = !empty($p['port']) ? (':'.$p['port']) : '';
+    $result = saft_get_authenticated_user($baseUrl, $apiToken, $verifyTls);
     
-    // Endpoint de validação de token privado - usar /api/private/me
-    $validateUrl = $scheme.'://'.$host.$port.'/api/private/me';
-
-    $ch = curl_init();
-    curl_setopt_array($ch, array(
-        CURLOPT_URL => $validateUrl,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 10,
-        CURLOPT_HTTPHEADER => array(
-            'X-API-Key: ' . $apiToken,
-            'Accept: application/json',
-        ),
-    ));
-
-    if (!$verifyTls) {
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+    if (!empty($result['ok'])) {
+        return array(
+            'valid' => true,
+            'user_data' => $result['data'],
+        );
     }
-
-    $response = curl_exec($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlErr = curl_error($ch);
-    curl_close($ch);
-
-    if ($curlErr) {
-        return array('valid' => false, 'error' => 'Erro de conexão: ' . $curlErr);
-    }
-
-    if ($httpCode === 200 && is_string($response)) {
-        $data = json_decode($response, true);
-        if (is_array($data) && !empty($data['nif'])) {
-            return array(
-                'valid' => true,
-                'user_data' => $data,
-            );
-        }
-    }
-
-    if ($httpCode === 401 || $httpCode === 403) {
-        return array('valid' => false, 'error' => 'Token inválido ou expirado');
-    }
-
-    return array('valid' => false, 'error' => 'Resposta inesperada do servidor (HTTP '.$httpCode.')');
+    
+    return array(
+        'valid' => false,
+        'error' => !empty($result['error']) ? $result['error'] : 'Erro desconhecido',
+    );
 }
 
 /**

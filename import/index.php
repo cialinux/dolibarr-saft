@@ -33,6 +33,30 @@ if (!empty($apiToken)) {
     $apiMode = 'private';
 }
 
+// Buscar limites imediatamente ao carregar a página
+if (empty($rateLimit)) {
+    if (!empty($apiToken)) {
+        // Modo privado: buscar dados do usuário
+        $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
+        if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
+            $userData = $userInfo['data'];
+            $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 50;
+            $usageToday = !empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0;
+            $rateLimit = array(
+                'limit' => $dailyLimit,
+                'used' => $usageToday,
+                'remaining' => max(0, $dailyLimit - $usageToday),
+            );
+        }
+    } else {
+        // Modo público: fazer uma chamada leve à API para obter headers de limite
+        $tempCheck = saft_consume_quota($apiUrlPreview, '', $verifyTls, 5);
+        if (!empty($tempCheck['rate_limit'])) {
+            $rateLimit = $tempCheck['rate_limit'];
+        }
+    }
+}
+
 llxHeader('', 'Importar SAF-T');
 print load_fiche_titre('Importar faturas (SAF-T)');
 
@@ -59,17 +83,23 @@ if ($action === 'upload') {
         if ($fileSize > 1 * 1024 * 1024) {
             setEventMessages('file size limit max 1mb', null, 'errors');
         } else {
-            $dir = DOL_DATA_ROOT.'/saft/import';
-            dol_mkdir($dir);
-
-            $tokenxml = dol_print_date(dol_now(), '%Y%m%d%H%M%S').'-'.random_int(1000,9999);
-            $dest = $dir.'/saft_import_'.$tokenxml.'.xml';
-
-            if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
-                setEventMessages('Ficheiro recebido com sucesso.', null, 'mesgs');
-                $action = 'preview';
+            // 🔒 VERIFICAR QUOTA ANTES DE PROCESSAR O UPLOAD
+            // Verificar se há quota disponível antes de salvar o arquivo
+            if ($rateLimit && (int)$rateLimit['remaining'] <= 0) {
+                setEventMessages('❌ Limite de consultas diárias excedido. Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas. Tente novamente depois de 24h.', null, 'errors');
             } else {
-                setEventMessages('Erro ao guardar ficheiro.', null, 'errors');
+                $dir = DOL_DATA_ROOT.'/saft/import';
+                dol_mkdir($dir);
+
+                $tokenxml = dol_print_date(dol_now(), '%Y%m%d%H%M%S').'-'.random_int(1000,9999);
+                $dest = $dir.'/saft_import_'.$tokenxml.'.xml';
+
+                if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
+                    setEventMessages('Ficheiro recebido com sucesso.', null, 'mesgs');
+                    $action = 'preview';
+                } else {
+                    setEventMessages('Erro ao guardar ficheiro.', null, 'errors');
+                }
             }
         }
     }
