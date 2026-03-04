@@ -83,10 +83,33 @@ if ($action === 'upload') {
         if ($fileSize > 1 * 1024 * 1024) {
             setEventMessages('file size limit max 1mb', null, 'errors');
         } else {
-            // 🔒 VERIFICAR QUOTA ANTES DE PROCESSAR O UPLOAD
-            // Verificar se há quota disponível antes de salvar o arquivo
+            // 🔒 RECARREGAR QUOTA ATUALIZADA ANTES DE PROCESSAR UPLOAD
+            // Buscar quota atualizada em tempo real
+            if (!empty($apiToken)) {
+                // Modo privado: buscar dados atualizados do usuário
+                $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
+                if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
+                    $userData = $userInfo['data'];
+                    $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 50;
+                    $usageToday = !empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0;
+                    $rateLimit = array(
+                        'limit' => $dailyLimit,
+                        'used' => $usageToday,
+                        'remaining' => max(0, $dailyLimit - $usageToday),
+                    );
+                }
+            } else {
+                // Modo público: verificar quota via consume-quota (sem consumir de fato, só para ler headers)
+                $tempCheck = saft_consume_quota($apiUrlPreview, '', $verifyTls, 5);
+                if (!empty($tempCheck['rate_limit'])) {
+                    $rateLimit = $tempCheck['rate_limit'];
+                }
+            }
+            
+            // VERIFICAR QUOTA ANTES DE PROCESSAR
             if ($rateLimit && (int)$rateLimit['remaining'] <= 0) {
                 setEventMessages('❌ Limite de consultas diárias excedido. Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas. Tente novamente depois de 24h.', null, 'errors');
+                setEventMessages('📊 Quota disponível: '.$rateLimit['remaining'].' consultas restantes', null, 'warnings');
             } else {
                 $dir = DOL_DATA_ROOT.'/saft/import';
                 dol_mkdir($dir);
