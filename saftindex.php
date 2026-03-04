@@ -17,6 +17,7 @@ $page      = max(1, GETPOSTINT('page'));
 $tokenXml  = GETPOST('tokenxml', 'alphanohtml');   // tem que persistir entre requests
 
 $apiUrlPreview = getDolGlobalString('SAFT_API_URL', '');
+$apiToken      = getDolGlobalString('SAFT_API_TOKEN', '');
 $verifyTls     = (bool) getDolGlobalInt('SAFT_VERIFY_TLS', 0);
 $perPage       = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
 $clientDebug   = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 1);
@@ -38,6 +39,8 @@ function saftLoadXml($token) {
 $error = null;
 $data  = null;
 $debug = null;
+$rateLimit = array('limit' => 5, 'used' => 0, 'remaining' => 5);  // Default públicos
+$apiMode = 'public';  // 'public' ou 'private'
 
 if ($action === 'validate') {
 
@@ -54,23 +57,33 @@ if ($action === 'validate') {
 
     // 3) Se temos XML, chama API
     if (!$error && $xml) {
-        $res = saft_call_preview_api(
-            saftTmpFile($tokenXml),
-            $page,
-            $perPage,
-            [
-                'api_url'    => $apiUrlPreview,
-                'verify_tls' => $verifyTls,
-                'timeout'    => 60,
-            ]
-        );
-
-        if (empty($res['data'])) {
-            $error = 'Erro ao validar SAF-T.';
+        // Validar tamanho do ficheiro (1MB máximo)
+        $fileSize = filesize(saftTmpFile($tokenXml));
+        if ($fileSize > 1 * 1024 * 1024) {
+            $error = 'file size limit max 1mb';
         } else {
-            $data = $res['data'];
+            $res = saft_call_preview_api(
+                saftTmpFile($tokenXml),
+                $page,
+                $perPage,
+                [
+                    'api_url'    => $apiUrlPreview,
+                    'api_token'  => $apiToken,
+                    'verify_tls' => $verifyTls,
+                    'timeout'    => 60,
+                ]
+            );
+
+            // Se temos erro de autenticação do token
+            if (!empty($res['auth_error'])) {
+                $error = $res['auth_error'];
+            } elseif (empty($res['data'])) {
+                $error = 'Erro ao validar SAF-T.';
+            } else {
+                $data = $res['data'];
+            }
+            $debug = json_encode($res, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         }
-        $debug = json_encode($res, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
 }
 
@@ -90,13 +103,19 @@ print '  <div class="fichehalfleft">';
 print '    <div class="card" style="padding:16px;">';
 print '      <h2>Validador SAF-T (Portugal)</h2>';
 print '      <div class="opacitymedium">API: '.dol_escape_htmltag($apiUrlPreview).'</div>';
+print '      <div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
+print '        <strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
+print '        | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+print '        | <strong>file size limit:</strong> max 1mb';
+print '      </div>';
 
-print '      <form method="POST" enctype="multipart/form-data">';
+print '      <form method="POST" enctype="multipart/form-data" id="saft-upload-form">';
 print '        <input type="hidden" name="token" value="'.$csrfToken.'">';
 print '        <input type="hidden" name="action" value="validate">';
 print '        <input type="hidden" name="page" value="1">'; // novo upload volta para a página 1
-print '        <input type="file" name="file" accept=".xml" required> ';
-print '        <input type="submit" class="button" value="Validar">';
+print '        <div style="margin:8px 0;"><label><input type="file" name="file" accept=".xml" required id="saft-file-input"> Seleccionar XML</label></div>';
+print '        <div id="saft-file-error" style="color:red; display:none; margin:8px 0;"></div>';
+print '        <input type="submit" class="button" value="Validar" id="saft-submit-btn">';
 print '      </form>';
 
 if (!empty($tokenXml)) {
@@ -104,6 +123,38 @@ if (!empty($tokenXml)) {
 }
 
 print '    </div>';
+print '    <script>';
+print '      const MAX_UPLOAD_BYTES = 1 * 1024 * 1024;';
+print '      const fileInput = document.getElementById("saft-file-input");';
+print '      const errorDiv = document.getElementById("saft-file-error");';
+print '      const submitBtn = document.getElementById("saft-submit-btn");';
+print '      const form = document.getElementById("saft-upload-form");';
+print '      ';
+print '      fileInput.addEventListener("change", function() {';
+print '        errorDiv.style.display = "none";';
+print '        errorDiv.textContent = "";';
+print '        submitBtn.disabled = false;';
+print '        ';
+print '        if (this.files && this.files[0]) {';
+print '          const file = this.files[0];';
+print '          if (file.size > MAX_UPLOAD_BYTES) {';
+print '            errorDiv.textContent = "file size limit max 1mb";';
+print '            errorDiv.style.display = "block";';
+print '            submitBtn.disabled = true;';
+print '          }';
+print '        }';
+print '      });';
+print '      ';
+print '      form.addEventListener("submit", function(e) {';
+print '        if (fileInput.files && fileInput.files[0]) {';
+print '          if (fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
+print '            e.preventDefault();';
+print '            errorDiv.textContent = "file size limit max 1mb";';
+print '            errorDiv.style.display = "block";';
+print '          }';
+print '        }';
+print '      });';
+print '    </script>';
 
 if ($error) {
     print '  <div class="error">'.dol_escape_htmltag($error).'</div>';

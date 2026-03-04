@@ -127,18 +127,21 @@ function saft_url_with_params($baseUrl, $params)
  * @param string $xmlFilePath  Caminho do XML gravado no disco
  * @param int $page
  * @param int $perPage
- * @param array $opts ['api_url' => 'https://.../api/public/validate/preview', 'verify_tls' => bool, 'timeout' => int]
- * @return array { data?, status, used_url?, attempts[], curl_error? }
+ * @param array $opts ['api_url' => 'https://.../api/public/validate/preview', 'verify_tls' => bool, 'timeout' => int, 'api_token' => 'optional_token']
+ * @return array { data?, status, used_url?, attempts[], curl_error?, rate_limit: {limit, used, remaining}, auth_error? }
  */
 function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
 {
     $apiUrl    = !empty($opts['api_url']) ? $opts['api_url'] : '';
+    $apiToken  = !empty($opts['api_token']) ? $opts['api_token'] : '';
     $verifyTls = !empty($opts['verify_tls']) ? true : false;
     $timeout   = !empty($opts['timeout']) ? (int)$opts['timeout'] : 45;
 
     $attempts = array();
     $data = null;
     $used = null;
+    $rateLimitInfo = array('limit' => 5, 'used' => 0, 'remaining' => 5);
+    $apiAuthError = null;
 
     if (empty($apiUrl)) {
         return array(
@@ -146,6 +149,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'used_url' => null,
             'attempts' => array(),
             'error' => 'Missing api_url (SAFT_API_URL)',
+            'rate_limit' => $rateLimitInfo,
         );
     }
 
@@ -155,6 +159,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'used_url' => null,
             'attempts' => array(),
             'error' => 'XML file not readable: '.$xmlFilePath,
+            'rate_limit' => $rateLimitInfo,
         );
     }
 
@@ -171,6 +176,13 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'file' => curl_file_create($xmlFilePath, 'application/xml', basename($xmlFilePath)),
         );
 
+        $headers = array('Content-Type: multipart/form-data');
+        
+        // Adicionar token se configurado (modo privado)
+        if (!empty($apiToken)) {
+            $headers[] = 'X-API-Key: ' . $apiToken;
+        }
+
         curl_setopt_array($ch, array(
             CURLOPT_URL => $url,
             CURLOPT_POST => true,
@@ -180,6 +192,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS => 3,
             CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
         ));
 
         if (!$verifyTls) {
@@ -202,6 +215,17 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             $body = substr($resp, $hdrSize);
         }
 
+        // Extrair headers de rate limit
+        preg_match('/X-RateLimit-Limit:\s*(\d+)/i', $headersRaw, $m1);
+        preg_match('/X-RateLimit-Used:\s*(\d+)/i', $headersRaw, $m2);
+        preg_match('/X-RateLimit-Remaining:\s*(\d+)/i', $headersRaw, $m3);
+        
+        if (!empty($m1[1])) {
+            $rateLimitInfo['limit'] = (int)$m1[1];
+            $rateLimitInfo['used'] = !empty($m2[1]) ? (int)$m2[1] : 0;
+            $rateLimitInfo['remaining'] = !empty($m3[1]) ? (int)$m3[1] : 0;
+        }
+
         $bodyHead = is_string($body) ? substr($body, 0, 1200) : '';
         $attempts[] = array(
             'url' => $url,
@@ -212,6 +236,12 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'headers_head_800' => substr((string)$headersRaw, 0, 800),
             'body_head_1200' => $bodyHead,
         );
+
+        // Verificar erro de autenticação
+        if ($status === 401 || $status === 403) {
+            $apiAuthError = 'Token API inválido ou expirado. Verifique no setup do módulo.';
+            continue;  // tentar próxima candidata
+        }
 
         // sucesso JSON
         if ($status === 200 && stripos($ct, 'application/json') !== false && is_string($body)) {
@@ -229,5 +259,6 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
         'used_url' => $used,
         'verify_tls' => $verifyTls,
         'attempts' => $attempts,
+        'rate_limit' => $rateLimitInfo,
+        'auth_error' => $apiAuthError,
     );
-}

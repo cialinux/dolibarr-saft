@@ -146,6 +146,14 @@ $item->nameText = 'Client debug (logs)';
 $item->helpText = 'Mostra informações de debug da chamada à API (útil para diagnosticar 404/porta 2000/SSL).';
 $item->defaultFieldValue = '0';
 
+// Token/API Key para usar a API privada (opcional - se não configurado, usa API pública)
+$item = $formSetup->newItem('SAFT_API_TOKEN');
+$item->nameText = 'SAFT API Token (opcional)';
+$item->helpText = 'API key/token privado gerado no dashboard do saft-validator. Se vazio, usa a API pública com limite de 5 consultas/dia.';
+$item->fieldAttr['placeholder'] = 'Gere um token no dashboard saft-validator';
+$item->cssClass = 'minwidth500';
+$item->fieldAttr['type'] = 'password';
+
 // End of definition of parameters
 $setupnotempty += count($formSetup->items);
 
