@@ -153,6 +153,7 @@ $item->helpText = '⚠️ DEIXE VAZIO para usar a API PÚBLICA (5 consultas/dia 
                   'Ou insira um token privado gerado no dashboard do saft-validator para limites maiores.<br>'.
                   '<strong>Nota:</strong> Validação de token temporariamente desabilitada - foco na API pública primeiro.';
 $item->fieldAttr['placeholder'] = 'Deixe vazio para modo público';
+$item->fieldAttr['type'] = 'password';
 $item->cssClass = 'minwidth500';
 
 // End of definition of parameters
