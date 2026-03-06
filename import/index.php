@@ -99,8 +99,44 @@ if ($action === 'upload') {
 if ($action === 'preview' && $tokenxml) {
     $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
     $invoices = SaftParser::loadCustomerInvoices($file);
+    $importerPreview = new SaftImport($db);
+
+    // Mapa de duplicidade no preview: já existente na base e duplicada no próprio XML.
+    $previewDuplicateStatus = array();
+    $seenXmlHashes = array();
+    foreach ($invoices as $k => $invTmp) {
+        $hashTmp = trim((string)($invTmp['hash'] ?? ''));
+        $statusTmp = '';
+
+        if ($hashTmp !== '' && $importerPreview->invoiceExistsByHash($hashTmp)) {
+            $statusTmp = 'duplicada na base';
+        } elseif ($hashTmp !== '' && isset($seenXmlHashes[$hashTmp])) {
+            $statusTmp = 'duplicada no XML';
+        } elseif ($hashTmp !== '') {
+            $seenXmlHashes[$hashTmp] = $k;
+        }
+
+        $previewDuplicateStatus[$k] = $statusTmp;
+    }
+
+    $previewTotal = count($invoices);
+    $previewDupBase = 0;
+    $previewDupXml = 0;
+    foreach ($previewDuplicateStatus as $st) {
+        if ($st === 'duplicada na base') $previewDupBase++;
+        elseif ($st === 'duplicada no XML') $previewDupXml++;
+    }
+    $previewEligible = $previewTotal - $previewDupBase - $previewDupXml;
 
     print load_fiche_titre('Fase 2: Pré-visualização');
+
+    print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
+    print '<strong>Contadores:</strong> ';
+    print 'Total: '.$previewTotal;
+    print ' | Elegiveis: '.$previewEligible;
+    print ' | Duplicadas na base: '.$previewDupBase;
+    print ' | Duplicadas no XML: '.$previewDupXml;
+    print '</div>';
 
     print '<form method="POST">';
     print '<input type="hidden" name="action" value="import">';
@@ -108,21 +144,46 @@ if ($action === 'preview' && $tokenxml) {
     print '<input type="hidden" name="token" value="'.newToken().'">';
 
     print '<table class="noborder centpercent">';
-    print '<tr class="liste_titre"><th></th><th>Nº</th><th>Data</th><th>Cliente</th><th>Total</th></tr>';
+    print '<tr class="liste_titre"><th><input type="checkbox" id="saft-select-all"></th><th>Nº</th><th>Data</th><th>Cliente</th><th>Total</th><th>Status</th></tr>';
 
     foreach ($invoices as $k => $inv) {
+        $dupStatus = !empty($previewDuplicateStatus[$k]) ? $previewDuplicateStatus[$k] : '';
+        $canSelect = ($dupStatus === '');
+
         print '<tr>';
-        print '<td><input type="checkbox" name="selected[]" value="'.$k.'"></td>';
+        if ($canSelect) {
+            print '<td><input type="checkbox" class="saft-select-item" name="selected[]" value="'.$k.'"></td>';
+        } else {
+            print '<td><input type="checkbox" disabled></td>';
+        }
         print '<td>'.dol_escape_htmltag($inv['number']).'</td>';
         print '<td>'.$inv['date'].'</td>';
         print '<td>'.dol_escape_htmltag($inv['customer_name']).'</td>';
         print '<td class="right">'.price($inv['total']).'</td>';
+        print '<td>'.($canSelect ? 'ok' : dol_escape_htmltag($dupStatus)).'</td>';
         print '</tr>';
     }
 
     print '</table><br>';
     print '<input type="submit" class="button button-save" value="Importar">';
     print '</form>';
+
+    print '<script>';
+    print '  (function() {';
+    print '    const master = document.getElementById("saft-select-all");';
+    print '    const items = Array.prototype.slice.call(document.querySelectorAll(".saft-select-item"));';
+    print '    if (!master || items.length === 0) return;';
+    print '    master.addEventListener("change", function() {';
+    print '      items.forEach(function(cb) { cb.checked = master.checked; });';
+    print '    });';
+    print '    items.forEach(function(cb) {';
+    print '      cb.addEventListener("change", function() {';
+    print '        const allChecked = items.every(function(x) { return x.checked; });';
+    print '        master.checked = allChecked;';
+    print '      });';
+    print '    });';
+    print '  })();';
+    print '</script>';
 }
 
 /* ============================================================
@@ -158,6 +219,7 @@ if ($action === 'import') {
         $validIndexes = array();
         $duplicateIndexes = array();
         $invalidIndexes = array();
+        $seenSelectedHashes = array();
         foreach ($indexes as $i) {
             $idx = (int) $i;
             if (!isset($invoices[$idx])) {
@@ -166,9 +228,20 @@ if ($action === 'import') {
             }
 
             $invCheck = $invoices[$idx];
-            if (!empty($invCheck['hash']) && $importer->invoiceExistsByHash($invCheck['hash'])) {
+            $hashCheck = trim((string)($invCheck['hash'] ?? ''));
+
+            if ($hashCheck !== '' && isset($seenSelectedHashes[$hashCheck])) {
                 $duplicateIndexes[] = $idx;
                 continue;
+            }
+
+            if ($hashCheck !== '' && $importer->invoiceExistsByHash($hashCheck)) {
+                $duplicateIndexes[] = $idx;
+                continue;
+            }
+
+            if ($hashCheck !== '') {
+                $seenSelectedHashes[$hashCheck] = $idx;
             }
 
             $validIndexes[] = $idx;
@@ -206,6 +279,14 @@ if ($action === 'import') {
         foreach ($validIndexes as $idx) {
             $inv = $invoices[$idx];
             $invoiceLabel = !empty($inv['number']) ? $inv['number'] : ('indice '.$idx);
+            $invoiceHash = trim((string)($inv['hash'] ?? ''));
+
+            // Revalidação defensiva para bloquear duplicados imediatamente.
+            if ($invoiceHash !== '' && $importer->invoiceExistsByHash($invoiceHash)) {
+                $skippedTotal++;
+                print '<div class="warning">Duplicada detectada antes da importacao: '.$invoiceLabel.' (hash '.$invoiceHash.').</div>';
+                continue;
+            }
 
             // Consome 1 unidade de quota por fatura marcada para importação.
             $quota = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
