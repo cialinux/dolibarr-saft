@@ -48,12 +48,6 @@ if (empty($rateLimit)) {
                 'remaining' => max(0, $dailyLimit - $usageToday),
             );
         }
-    } else {
-        // Modo público: fazer uma chamada leve à API para obter headers de limite
-        $tempCheck = saft_consume_quota($apiUrlPreview, '', $verifyTls, 5);
-        if (!empty($tempCheck['rate_limit'])) {
-            $rateLimit = $tempCheck['rate_limit'];
-        }
     }
 }
 
@@ -68,7 +62,7 @@ print '<strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓
 if ($rateLimit !== null && isset($rateLimit['limit'])) {
     print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
 } else {
-    print ' | <strong>Limites:</strong> Aguardando resposta da API';
+    print ' | <strong>Limites:</strong> Disponivel durante a importacao';
 }
 print ' | <strong>file size limit:</strong> max 1mb';
 print '</div>';
@@ -83,46 +77,17 @@ if ($action === 'upload') {
         if ($fileSize > 1 * 1024 * 1024) {
             setEventMessages('file size limit max 1mb', null, 'errors');
         } else {
-            // 🔒 RECARREGAR QUOTA ATUALIZADA ANTES DE PROCESSAR UPLOAD
-            // Buscar quota atualizada em tempo real
-            if (!empty($apiToken)) {
-                // Modo privado: buscar dados atualizados do usuário
-                $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
-                if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
-                    $userData = $userInfo['data'];
-                    $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 50;
-                    $usageToday = !empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0;
-                    $rateLimit = array(
-                        'limit' => $dailyLimit,
-                        'used' => $usageToday,
-                        'remaining' => max(0, $dailyLimit - $usageToday),
-                    );
-                }
-            } else {
-                // Modo público: verificar quota via consume-quota (sem consumir de fato, só para ler headers)
-                $tempCheck = saft_consume_quota($apiUrlPreview, '', $verifyTls, 5);
-                if (!empty($tempCheck['rate_limit'])) {
-                    $rateLimit = $tempCheck['rate_limit'];
-                }
-            }
-            
-            // VERIFICAR QUOTA ANTES DE PROCESSAR
-            if ($rateLimit && (int)$rateLimit['remaining'] <= 0) {
-                setEventMessages('❌ Limite de consultas diárias excedido. Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas. Tente novamente depois de 24h.', null, 'errors');
-                setEventMessages('📊 Quota disponível: '.$rateLimit['remaining'].' consultas restantes', null, 'warnings');
-            } else {
-                $dir = DOL_DATA_ROOT.'/saft/import';
-                dol_mkdir($dir);
+            $dir = DOL_DATA_ROOT.'/saft/import';
+            dol_mkdir($dir);
 
-                $tokenxml = dol_print_date(dol_now(), '%Y%m%d%H%M%S').'-'.random_int(1000,9999);
-                $dest = $dir.'/saft_import_'.$tokenxml.'.xml';
+            $tokenxml = dol_print_date(dol_now(), '%Y%m%d%H%M%S').'-'.random_int(1000,9999);
+            $dest = $dir.'/saft_import_'.$tokenxml.'.xml';
 
-                if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
-                    setEventMessages('Ficheiro recebido com sucesso.', null, 'mesgs');
-                    $action = 'preview';
-                } else {
-                    setEventMessages('Erro ao guardar ficheiro.', null, 'errors');
-                }
+            if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
+                setEventMessages('Ficheiro recebido com sucesso.', null, 'mesgs');
+                $action = 'preview';
+            } else {
+                setEventMessages('Erro ao guardar ficheiro.', null, 'errors');
             }
         }
     }
@@ -171,129 +136,141 @@ if ($action === 'import') {
     if (empty($indexes)) {
         print '<div class="warning">Nenhuma fatura selecionada.</div>';
     } else {
-        // 🔒 VERIFICAR RATE LIMIT ANTES DE IMPORTAR (modo automático: público/privado)
-        $quota = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
-        $httpCode = !empty($quota['status']) ? (int) $quota['status'] : 0;
-        $rateLimit = !empty($quota['rate_limit']) ? $quota['rate_limit'] : null;
+        $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
+        $invoices = SaftParser::loadCustomerInvoices($file);
+        $importer = new SaftImport($db);
 
-        // Fallback robusto: se endpoint consume-quota não existir/falhar,
-        // consumir quota via endpoint de preview (que já está estável no servidor)
-        if (empty($quota['ok']) && empty($quota['auth_error']) && empty($quota['rate_limit_error'])) {
-            $fileForQuota = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
-            if (is_readable($fileForQuota)) {
-                $quotaFallback = saft_call_preview_api(
-                    $fileForQuota,
-                    1,
-                    1,
-                    array(
-                        'api_url' => $apiUrlPreview,
-                        'api_token' => $apiToken,
-                        'verify_tls' => $verifyTls,
-                        'timeout' => 30,
-                    )
+        // Atualiza limites no modo privado sem consumir quota.
+        if (!empty($apiToken)) {
+            $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
+            if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
+                $userData = $userInfo['data'];
+                $dailyLimit = !empty($userData['daily_limit']) ? (int) $userData['daily_limit'] : 50;
+                $usageToday = !empty($userData['usage_today']) ? (int) $userData['usage_today'] : 0;
+                $rateLimit = array(
+                    'limit' => $dailyLimit,
+                    'used' => $usageToday,
+                    'remaining' => max(0, $dailyLimit - $usageToday),
                 );
-
-                if (!empty($quotaFallback['rate_limit'])) {
-                    $rateLimit = $quotaFallback['rate_limit'];
-                }
-
-                if (!empty($quotaFallback['auth_error'])) {
-                    $quota = array(
-                        'ok' => false,
-                        'status' => 401,
-                        'auth_error' => $quotaFallback['auth_error'],
-                        'rate_limit_error' => null,
-                        'rate_limit' => $rateLimit,
-                        'error' => null,
-                    );
-                } elseif (!empty($quotaFallback['rate_limit_error'])) {
-                    $quota = array(
-                        'ok' => false,
-                        'status' => 429,
-                        'auth_error' => null,
-                        'rate_limit_error' => $quotaFallback['rate_limit_error'],
-                        'rate_limit' => $rateLimit,
-                        'error' => null,
-                    );
-                } elseif (!empty($quotaFallback['data'])) {
-                    $quota = array(
-                        'ok' => true,
-                        'status' => 200,
-                        'auth_error' => null,
-                        'rate_limit_error' => null,
-                        'rate_limit' => $rateLimit,
-                        'error' => null,
-                    );
-                }
             }
         }
 
-        if (!empty($quota['auth_error'])) {
-            setEventMessages('🔒 '.$quota['auth_error'], null, 'errors');
-        } elseif (!empty($quota['rate_limit_error'])) {
-            setEventMessages('❌ '.$quota['rate_limit_error'], null, 'errors');
-            if ($rateLimit) {
-                setEventMessages('📊 Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' | Restante: '.$rateLimit['remaining'], null, 'warnings');
+        $validIndexes = array();
+        $duplicateIndexes = array();
+        $invalidIndexes = array();
+        foreach ($indexes as $i) {
+            $idx = (int) $i;
+            if (!isset($invoices[$idx])) {
+                $invalidIndexes[] = $idx;
+                continue;
             }
-        } elseif (!empty($quota['ok'])) {
-            setEventMessages('✅ Quota consumida. Iniciando importação de '.count($indexes).' fatura(s)...', null, 'mesgs');
-        } else {
-            $erroQuota = !empty($quota['error']) ? $quota['error'] : ('HTTP '.$httpCode);
-            setEventMessages('⚠️ Erro ao verificar quota: '.$erroQuota, null, 'warnings');
+
+            $invCheck = $invoices[$idx];
+            if (!empty($invCheck['hash']) && $importer->invoiceExistsByHash($invCheck['hash'])) {
+                $duplicateIndexes[] = $idx;
+                continue;
+            }
+
+            $validIndexes[] = $idx;
         }
-        
-        // Mostrar status de rate limit
-        if ($rateLimit) {
-            print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
-            print '<strong>📊 Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
-            print ' | <strong>Restantes:</strong> '.$rateLimit['remaining'];
-            print '</div>';
+
+        $selectedTotal = count($indexes);
+        $eligibleTotal = count($validIndexes);
+        $duplicateTotal = count($duplicateIndexes);
+        $invalidTotal = count($invalidIndexes);
+        $consumedQuota = 0;
+        $importedTotal = 0;
+        $skippedTotal = 0;
+        $quotaStopped = false;
+
+        if ($duplicateTotal > 0) {
+            setEventMessages('Pre-checagem: '.$duplicateTotal.' fatura(s) já existem e serão ignoradas antes da importação.', null, 'warnings');
         }
-        
-        // Se não conseguiu consumir quota, não prosseguir
-        if (empty($quota['ok'])) {
-            print '<div style="margin:12px 0; padding:8px; background:#ffcccc; border-radius:4px;">';
-            print '❌ Importação bloqueada: não foi possível consumir quota.';
-            print '</div>';
-        } else {
-            // PROSSEGUIR COM A IMPORTAÇÃO
-            print '<div style="margin:12px 0;">';
-            
-            $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
-            $invoices = SaftParser::loadCustomerInvoices($file);
 
-            $importer = new SaftImport($db);
+        if ($invalidTotal > 0) {
+            setEventMessages('Pre-checagem: '.$invalidTotal.' seleção(ões) inválida(s) foram descartadas.', null, 'warnings');
+        }
 
-            foreach ($indexes as $i) {
-                $inv = $invoices[(int)$i];
+        if (!empty($rateLimit) && isset($rateLimit['remaining'])) {
+            $saldo = max(0, (int) $rateLimit['remaining']);
+            $possivelImportar = min($eligibleTotal, $saldo);
+            if ($eligibleTotal > $saldo) {
+                setEventMessages('Você selecionou '.$selectedTotal.', mas seu saldo permite importar apenas '.$possivelImportar.'.', null, 'warnings');
+            }
+        }
 
-                $db->begin();
+        setEventMessages('Iniciando importacao de '.$selectedTotal.' fatura(s) selecionada(s).', null, 'mesgs');
+
+        print '<div style="margin:12px 0;">';
+
+        foreach ($validIndexes as $idx) {
+            $inv = $invoices[$idx];
+            $invoiceLabel = !empty($inv['number']) ? $inv['number'] : ('indice '.$idx);
+
+            // Consome 1 unidade de quota por fatura marcada para importação.
+            $quota = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
+            $rateLimit = !empty($quota['rate_limit']) ? $quota['rate_limit'] : $rateLimit;
+
+            if (empty($quota['ok'])) {
+                $quotaStopped = true;
+                if (!empty($quota['auth_error'])) {
+                    print '<div class="error">🔒 '.$quota['auth_error'].'</div>';
+                } elseif (!empty($quota['rate_limit_error'])) {
+                    print '<div class="error">❌ '.$quota['rate_limit_error'].'</div>';
+                } else {
+                    $statusText = !empty($quota['status']) ? ('HTTP '.((int) $quota['status'])) : 'sem codigo HTTP';
+                    $errorText = !empty($quota['error']) ? $quota['error'] : ('Falha ao consumir quota ('.$statusText.').');
+                    print '<div class="error">❌ '.$errorText.'</div>';
+                }
+
+                if (!empty($rateLimit)) {
+                    print '<div class="warning">📊 Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' | Restante: '.$rateLimit['remaining'].'</div>';
+                }
+
+                print '<div class="warning">Importacao interrompida ao atingir o limite de quota.</div>';
+                break;
+            }
+
+            $consumedQuota++;
+
+            $db->begin();
 
             $socid = $importer->findOrCreateThirdpartyFromSaft($inv, $user);
             if ($socid <= 0) {
                 $db->rollback();
-                print '<div class="error">Erro cliente</div>';
-                continue;
-            }
-
-            if (!empty($inv['hash']) && $importer->invoiceExistsByHash($inv['hash'])) {
-                $db->rollback();
-                print '<div class="warning">Duplicado (hash '.$inv['hash'].')</div>';
+                $skippedTotal++;
+                print '<div class="error">Erro ao obter cliente para a fatura '.$invoiceLabel.'.</div>';
                 continue;
             }
 
             $id = $importer->createCustomerInvoiceDraftFromSaft($socid, $inv, $user);
             if ($id <= 0) {
                 $db->rollback();
-                print '<div class="error">'.$importer->error.'</div>';
+                $skippedTotal++;
+                print '<div class="error">Erro ao importar fatura '.$invoiceLabel.': '.$importer->error.'</div>';
                 continue;
             }
 
             $db->commit();
-            print '<div class="ok">Fatura '.$inv['number'].' criada (ID '.$id.')</div>';
+            $importedTotal++;
+            print '<div class="ok">Fatura '.$invoiceLabel.' criada (ID '.$id.')</div>';
         }
-            print '</div>';  // Fechar div "margin:12px 0;"
-        }  // Fechar else (if $httpCode === 200)
+
+        print '</div>';
+
+        if (!empty($rateLimit)) {
+            print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
+            print '<strong>📊 Limites apos importacao:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+            print ' | <strong>Restantes:</strong> '.$rateLimit['remaining'];
+            print '</div>';
+        }
+
+        $skippedTotal += $duplicateTotal + $invalidTotal;
+        $summaryMsg = 'Resumo: selecionadas '.$selectedTotal.', elegiveis '.$eligibleTotal.', quota consumida '.$consumedQuota.', importadas '.$importedTotal.', ignoradas '.$skippedTotal.' (duplicadas '.$duplicateTotal.', invalidas '.$invalidTotal.').';
+        if ($quotaStopped) {
+            $summaryMsg .= ' Processo interrompido por limite de quota.';
+        }
+        setEventMessages($summaryMsg, null, $quotaStopped ? 'warnings' : 'mesgs');
     }  // Fechar else (if empty($indexes))
 }  // Fechar if ($action === 'import')
 

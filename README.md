@@ -1,18 +1,17 @@
-# SAFT FOR [DOLIBARR ERP & CRM](https://www.dolibarr.org)
+# SAF-T Portugal para [DOLIBARR ERP & CRM](https://www.dolibarr.org)
 
-## Features
+## Recursos
 
-Description of the module...
+O objetivo deste modulo Saf-T é para consultar ficheiros saft (xml) e ter a possibilidade de importar a(s) fatura(s) para o dolibarr.
 
 <!--
 ![Screenshot saft](img/screenshot_saft.png?raw=true "Saft"){imgmd}
 -->
 
-Other external modules are available on [Dolistore.com](https://www.dolistore.com).
 
-## Translations
+## Tradução
 
-Translations can be completed manually by editing files in the module directories under `langs`.
+No momento o modulo está na lingua portuguesa e no futuro a edição para outras linguas será possível em `langs`.
 
 <!--
 This module contains also a sample configuration for Transifex, under the hidden directory [.tx](.tx), so it is possible to manage translation using this service.
@@ -23,16 +22,14 @@ There is a [Transifex project](https://transifex.com/projects/p/dolibarr-module-
 -->
 
 
-## Installation
+## Instalação
 
-Prerequisites: You must have Dolibarr ERP & CRM software installed. You can download it from [Dolistore.org](https://www.dolibarr.org).
-You can also get a ready-to-use instance in the cloud from https://saas.dolibarr.org
+Pre-requisitos: Voce precisa ter o sistema Dolibarr ERP & CRM software instalado. Você pode fazer o donwload aqui [Dolistore.org](https://www.dolibarr.org).
 
 
-### From the ZIP file and GUI interface
+### A partir do arquivo ZIP and interface GUI
 
-If the module is a ready-to-deploy zip file, so with a name `module_xxx-version.zip` (e.g., when downloading it from a marketplace like [Dolistore](https://www.dolistore.com)),
-go to menu `Home> Setup> Modules> Deploy external module` and upload the zip file.
+Nome `module_saft-2.0.zip` (e.g., Quando o download é feito a partir do marketplace como [Dolistore](https://www.dolistore.com)), clique no menu `Home> Setup> Modules> Deploy external module` e faça upload do arquivo zip.
 
 <!--
 
@@ -75,13 +72,13 @@ git clone git@github.com:gitlogin/saft.git saft
 
 -->
 
-### Final steps
+### Passos finais
 
-Using your browser:
+Use seu navegador:
 
-  - Log into Dolibarr as a super-administrator
-  - Go to "Setup"> "Modules"
-  - You should now be able to find and enable the module
+  - Faça login no Dolibarr como super-administrator
+  - Vá em "Setup"> "Modules"
+  - Você estará apto a procurar o modulo e ativa-lo
 
 
 
