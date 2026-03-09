@@ -148,7 +148,7 @@ $item->defaultFieldValue = '1';  // Habilitado por padrão para troubleshooting
 // Token/API Key para usar a API privada (opcional - se não configurado, usa API pública)
 $item = $formSetup->newItem('SAFT_API_TOKEN');
 $item->nameText = 'SAFT API Token (OPCIONAL)';
-$item->helpText = '⚠️ DEIXE VAZIO para usar a API PÚBLICA (5 consultas/dia por IP).<br>'.
+$item->helpText = '⚠️ DEIXE VAZIO para usar a API PÚBLICA (3 consultas/dia por IP).<br>'.
                   'Ou insira um token privado gerado no dashboard do saft-validator para limites maiores.<br>'.
                   '<strong>Nota:</strong> Validação de token temporariamente desabilitada - foco na API pública primeiro.';
 $item->fieldAttr['placeholder'] = 'Deixe vazio para modo público';
@@ -373,13 +373,13 @@ if (!empty($apiToken)) {
                 $nif = !empty($userData['nif']) ? $userData['nif'] : 'N/A';
                 $email = !empty($userData['email']) ? $userData['email'] : 'N/A';
                 $dailyLimit = !empty($userData['daily_limit']) ? $userData['daily_limit'] : 'N/A';
-                $usageToday = !empty($userData['usage_today']) ? $userData['usage_today'] : 0;
+                $usageToday = !empty($userData['usage_month']) ? $userData['usage_month'] : (!empty($userData['usage_today']) ? $userData['usage_today'] : 0);
                 
                 print '<table class="noborder centpercent">';
                 print '<tr><td width="30%"><strong>NIF Vinculado:</strong></td><td>'.$nif.'</td></tr>';
                 print '<tr><td><strong>Email:</strong></td><td>'.dol_escape_htmltag($email).'</td></tr>';
-                print '<tr><td><strong>Limite Diário:</strong></td><td>'.$dailyLimit.' consultas/dia</td></tr>';
-                print '<tr><td><strong>Usado Hoje:</strong></td><td>'.$usageToday.'/'.$dailyLimit.' consultas</td></tr>';
+                print '<tr><td><strong>Limite Mensal:</strong></td><td>'.$dailyLimit.' consultas/mes</td></tr>';
+                print '<tr><td><strong>Usado no Mes:</strong></td><td>'.$usageToday.'/'.$dailyLimit.' consultas</td></tr>';
                 print '<tr><td><strong>Restante:</strong></td><td>'.max(0, (int)$dailyLimit - (int)$usageToday).' consultas</td></tr>';
                 print '</table>';
         } else {

@@ -40,8 +40,8 @@ if (empty($rateLimit)) {
         $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
         if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
             $userData = $userInfo['data'];
-            $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 50;
-            $usageToday = !empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0;
+            $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 15;
+            $usageToday = !empty($userData['usage_month']) ? (int)$userData['usage_month'] : (!empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0);
             $rateLimit = array(
                 'limit' => $dailyLimit,
                 'used' => $usageToday,
@@ -60,7 +60,8 @@ print '<div class="fichecenter"><div class="card" style="padding:16px;">';
 print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '<strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
 if ($rateLimit !== null && isset($rateLimit['limit'])) {
-    print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+    $periodLabel = ($apiMode === 'private') ? 'consultas/mes' : 'consultas/dia';
+    print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' '.$periodLabel;
 } else {
     print ' | <strong>Limites:</strong> Disponivel durante a importacao';
 }
@@ -377,8 +378,9 @@ if ($action === 'import') {
         print '</div>';
 
         if (!empty($rateLimit)) {
+            $periodLabel = ($apiMode === 'private') ? 'consultas/mes' : 'consultas/dia';
             print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
-            print '<strong>📊 Limites apos importacao:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/dia';
+            print '<strong>📊 Limites apos importacao:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' '.$periodLabel;
             print ' | <strong>Restantes:</strong> '.$rateLimit['remaining'];
             print '</div>';
         }

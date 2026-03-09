@@ -662,15 +662,16 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
 
         // Verificar erro de rate limit (quota excedida)
         if ($status === 429) {
+            $quotaPeriodText = !empty($apiToken) ? 'mensais' : 'diárias';
             if (is_string($body)) {
                 $decoded = json_decode($body, true);
                 if (is_array($decoded) && !empty($decoded['error'])) {
                     $rateLimitError = $decoded['error'];
                 } else {
-                    $rateLimitError = 'Limite de consultas diárias excedido. Tente novamente depois de 24h.';
+                    $rateLimitError = 'Limite de consultas '.$quotaPeriodText.' excedido.';
                 }
             } else {
-                $rateLimitError = 'Limite de consultas diárias excedido.';
+                $rateLimitError = 'Limite de consultas '.$quotaPeriodText.' excedido.';
             }
             continue;  // tentar próxima candidata
         }
