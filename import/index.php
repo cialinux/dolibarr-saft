@@ -280,6 +280,22 @@ if ($action === 'import') {
             $inv = $invoices[$idx];
             $invoiceLabel = !empty($inv['number']) ? $inv['number'] : ('indice '.$idx);
             $invoiceHash = trim((string)($inv['hash'] ?? ''));
+            $customerAuditMap = array(
+                'nome' => trim((string)($inv['customer_name'] ?? '')),
+                'nif' => trim((string)($inv['customer_taxid'] ?? '')),
+                'vat' => trim((string)($inv['customer_vat'] ?? '')),
+                'endereco' => trim((string)($inv['customer_address'] ?? '')),
+                'cidade' => trim((string)($inv['customer_city'] ?? '')),
+                'codigo_postal' => trim((string)($inv['customer_zip'] ?? '')),
+                'estado_regiao' => trim((string)($inv['customer_state'] ?? '')),
+                'pais' => trim((string)($inv['customer_country'] ?? '')),
+                'telefone' => trim((string)($inv['customer_phone'] ?? '')),
+                'telemovel' => trim((string)($inv['customer_mobile'] ?? '')),
+                'fax' => trim((string)($inv['customer_fax'] ?? '')),
+                'email' => trim((string)($inv['customer_email'] ?? '')),
+                'website' => trim((string)($inv['customer_website'] ?? '')),
+                'contacto' => trim((string)($inv['customer_contact'] ?? '')),
+            );
 
             // Revalidação defensiva para bloquear duplicados imediatamente.
             if ($invoiceHash !== '' && $importer->invoiceExistsByHash($invoiceHash)) {
@@ -316,7 +332,8 @@ if ($action === 'import') {
 
             $db->begin();
 
-            $socid = $importer->findOrCreateThirdpartyFromSaft($inv, $user);
+            $customerStatus = 'unknown';
+            $socid = $importer->findOrCreateThirdpartyFromSaft($inv, $user, $customerStatus);
             if ($socid <= 0) {
                 $db->rollback();
                 $skippedTotal++;
@@ -335,6 +352,24 @@ if ($action === 'import') {
             $db->commit();
             $importedTotal++;
             print '<div class="ok">Fatura '.$invoiceLabel.' criada (ID '.$id.')</div>';
+
+            $auditPairs = array();
+            $auditPairs[] = 'cliente_status='.$customerStatus;
+            foreach ($customerAuditMap as $fieldName => $fieldValue) {
+                if ($fieldValue !== '') {
+                    $auditPairs[] = $fieldName.'='.$fieldValue;
+                }
+            }
+
+            if (!empty($auditPairs)) {
+                print '<div style="margin:2px 0 10px 20px; color:#555;">';
+                print '<strong>Auditoria cliente XML:</strong> '.dol_escape_htmltag(implode(' | ', $auditPairs));
+                print '</div>';
+            } else {
+                print '<div style="margin:2px 0 10px 20px; color:#777;">';
+                print '<strong>Auditoria cliente XML:</strong> nenhum campo de cliente preenchido no XML.';
+                print '</div>';
+            }
         }
 
         print '</div>';

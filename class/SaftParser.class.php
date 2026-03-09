@@ -33,13 +33,61 @@ class SaftParser
 
             $name = (string)($c->CompanyName ?: $c->CustomerName ?: $cid);
             $tax  = (string)$c->CustomerTaxID;
-            $cc   = (string)($c->BillingAddress->Country ?: '');
+            $addrNode = isset($c->BillingAddress) ? $c->BillingAddress : null;
+
+            $streetName   = $addrNode ? trim((string)($addrNode->StreetName ?? '')) : '';
+            $buildingNo   = $addrNode ? trim((string)($addrNode->BuildingNumber ?? '')) : '';
+            $addressLine1 = $addrNode ? trim((string)($addrNode->AddressDetail ?? '')) : '';
+            $city         = $addrNode ? trim((string)($addrNode->City ?? '')) : '';
+            $postalCode   = $addrNode ? trim((string)($addrNode->PostalCode ?? '')) : '';
+            $region       = $addrNode ? trim((string)($addrNode->Region ?? '')) : '';
+            $cc           = $addrNode ? (string)($addrNode->Country ?: '') : '';
+            $phone        = self::firstNonEmpty(array(
+                $c->Telephone ?? null,
+                $c->Phone ?? null,
+                $c->CustomerTelephone ?? null,
+            ));
+            $mobile       = self::firstNonEmpty(array(
+                $c->MobilePhone ?? null,
+                $c->CellPhone ?? null,
+                $c->CustomerMobile ?? null,
+            ));
+            $fax          = self::firstNonEmpty(array(
+                $c->Fax ?? null,
+                $c->CustomerFax ?? null,
+            ));
+            $email        = self::firstNonEmpty(array(
+                $c->Email ?? null,
+                $c->CustomerEmail ?? null,
+            ));
+            $website      = self::firstNonEmpty(array(
+                $c->Website ?? null,
+                $c->WebSite ?? null,
+            ));
+            $contact      = self::firstNonEmpty(array(
+                $c->Contact ?? null,
+                $c->ContactPerson ?? null,
+            ));
+
+            if ($addressLine1 === '' && ($streetName !== '' || $buildingNo !== '')) {
+                $addressLine1 = trim($streetName.' '.$buildingNo);
+            }
 
             $customers[$cid] = [
                 'id'      => $cid,
                 'name'    => trim($name),
                 'taxid'   => preg_replace('/\s+/', '', $tax),
                 'country' => strtoupper(trim($cc)),
+                'address' => $addressLine1,
+                'city'    => $city,
+                'zip'     => $postalCode,
+                'state'   => $region,
+                'phone'   => $phone,
+                'mobile'  => $mobile,
+                'fax'     => $fax,
+                'email'   => $email,
+                'website' => $website,
+                'contact' => $contact,
             ];
         }
 
@@ -70,6 +118,16 @@ class SaftParser
                 'name' => $custId,
                 'taxid' => '',
                 'country' => '',
+                'address' => '',
+                'city' => '',
+                'zip' => '',
+                'state' => '',
+                'phone' => '',
+                'mobile' => '',
+                'fax' => '',
+                'email' => '',
+                'website' => '',
+                'contact' => '',
             ];
 
             // Campos adicionais (nível da fatura - quando existirem)
@@ -138,6 +196,16 @@ class SaftParser
                 'customer_taxid'   => $cust['taxid'],
                 'customer_country' => $cust['country'],
                 'customer_vat'     => self::buildVat($cust['country'], $cust['taxid']),
+                'customer_address' => $cust['address'],
+                'customer_city'    => $cust['city'],
+                'customer_zip'     => $cust['zip'],
+                'customer_state'   => $cust['state'],
+                'customer_phone'   => $cust['phone'],
+                'customer_mobile'  => $cust['mobile'],
+                'customer_fax'     => $cust['fax'],
+                'customer_email'   => $cust['email'],
+                'customer_website' => $cust['website'],
+                'customer_contact' => $cust['contact'],
 
                 // Campos adicionais do XML
                 'tax_exemption_reason' => $taxExReason,
@@ -161,5 +229,14 @@ class SaftParser
 
         if ($country && $taxid) return $country.$taxid;
         return $taxid;
+    }
+
+    private static function firstNonEmpty($candidates)
+    {
+        foreach ($candidates as $candidate) {
+            $value = trim((string) $candidate);
+            if ($value !== '') return $value;
+        }
+        return '';
     }
 }

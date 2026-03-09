@@ -49,11 +49,22 @@ class SaftImport
         return false;
     }
 
-    public function findOrCreateThirdpartyFromSaft($inv, $user)
+    public function findOrCreateThirdpartyFromSaft($inv, $user, &$customerStatus = null)
     {
+        $customerStatus = 'unknown';
         $name = trim((string)($inv['customer_name'] ?? ''));
         $vat  = trim((string)($inv['customer_vat'] ?? ''));
         $cc   = strtoupper(trim((string)($inv['customer_country'] ?? '')));
+        $address = trim((string)($inv['customer_address'] ?? ''));
+        $zip = trim((string)($inv['customer_zip'] ?? ''));
+        $town = trim((string)($inv['customer_city'] ?? ''));
+        $state = trim((string)($inv['customer_state'] ?? ''));
+        $phone = trim((string)($inv['customer_phone'] ?? ''));
+        $mobile = trim((string)($inv['customer_mobile'] ?? ''));
+        $fax = trim((string)($inv['customer_fax'] ?? ''));
+        $email = trim((string)($inv['customer_email'] ?? ''));
+        $website = trim((string)($inv['customer_website'] ?? ''));
+        $contact = trim((string)($inv['customer_contact'] ?? ''));
 
         if ($name === '') $name = 'Cliente SAF-T';
 
@@ -66,6 +77,7 @@ class SaftImport
                     LIMIT 1";
             $res = $this->db->query($sql);
             if ($res && ($obj = $this->db->fetch_object($res))) {
+                $customerStatus = 'existente';
                 return (int) $obj->rowid;
             }
         }
@@ -75,6 +87,21 @@ class SaftImport
         $soc->name = $name;
         $soc->client = 1;
         $soc->code_client = -1;
+
+        if ($address !== '') $soc->address = $address;
+        if ($zip !== '') $soc->zip = $zip;
+        if ($town !== '') $soc->town = $town;
+        if ($state !== '') $soc->state = $state;
+        if ($phone !== '') $soc->phone = $phone;
+        if ($mobile !== '') $soc->phone_mobile = $mobile;
+        if ($fax !== '') $soc->fax = $fax;
+        if ($email !== '') $soc->email = $email;
+        if ($website !== '') $soc->url = $website;
+        if ($contact !== '') {
+            $soc->note_private = trim((string) $soc->note_private);
+            if ($soc->note_private !== '') $soc->note_private .= "\n";
+            $soc->note_private .= 'Contacto SAF-T: '.$contact;
+        }
 
         if ($vat !== '') $soc->tva_intra = $vat;
 
@@ -87,9 +114,11 @@ class SaftImport
         $id = $soc->create($user);
         if ($id <= 0) {
             $this->error = $soc->error;
+            $customerStatus = 'erro';
             return -1;
         }
 
+        $customerStatus = 'novo';
         return (int) $id;
     }
 
