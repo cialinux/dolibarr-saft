@@ -58,9 +58,8 @@ if (empty($rateLimit)) {
             );
         }
     } else {
-        // Modo público: fazer uma chamada leve à API para obter headers de limite
-        // (usaremos um POST vazio ao endpoint consume-quota apenas para ler headers)
-        $tempCheck = saft_consume_quota($apiUrlPreview, '', $verifyTls, 5);
+        // Modo público: consultar status sem consumo para exibir limites no menu.
+        $tempCheck = saft_get_public_quota_status($apiUrlPreview, $verifyTls, 5);
         if (!empty($tempCheck['rate_limit'])) {
             $rateLimit = $tempCheck['rate_limit'];
         }

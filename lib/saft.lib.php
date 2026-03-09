@@ -294,6 +294,131 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
 }
 
 /**
+ * Consulta status de quota pública sem consumir (GET /api/dolibarr/public/status).
+ *
+ * @param string $configuredPreviewUrl
+ * @param bool $verifyTls
+ * @param int $timeout
+ * @return array {ok, status, rate_limit?, error?, attempts[]}
+ */
+function saft_get_public_quota_status($configuredPreviewUrl, $verifyTls = false, $timeout = 10)
+{
+    $statusUrl = saft_resolve_mode_endpoint_url(
+        $configuredPreviewUrl,
+        '',
+        '/api/dolibarr/public/status',
+        '/api/dolibarr/private/me'
+    );
+
+    if ($statusUrl === '') {
+        return array(
+            'ok' => false,
+            'status' => 0,
+            'error' => 'Missing api_url (SAFT_API_URL)',
+            'attempts' => array(),
+            'rate_limit' => null,
+        );
+    }
+
+    $attempts = array();
+    $rateLimitInfo = null;
+    $lastStatus = 0;
+    $lastError = null;
+
+    $candidates = saft_build_api_candidates($statusUrl);
+    foreach ($candidates as $url) {
+        $headers = array('Accept: application/json');
+
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $url,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => (int) $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        preg_match('/X-RateLimit-Limit:\s*(\d+)/i', $headersRaw, $m1);
+        preg_match('/X-RateLimit-Used:\s*(\d+)/i', $headersRaw, $m2);
+        preg_match('/X-RateLimit-Remaining:\s*(\d+)/i', $headersRaw, $m3);
+        if (!empty($m1[1])) {
+            $rateLimitInfo = array(
+                'limit' => (int) $m1[1],
+                'used' => !empty($m2[1]) ? (int) $m2[1] : 0,
+                'remaining' => !empty($m3[1]) ? (int) $m3[1] : 0,
+            );
+        }
+
+        // Fallback para cenários sem headers (usar body JSON do /status)
+        if ($rateLimitInfo === null && is_string($body) && stripos($ct, 'application/json') !== false) {
+            $decoded = json_decode($body, true);
+            if (is_array($decoded) && isset($decoded['limit']) && isset($decoded['used']) && isset($decoded['remaining'])) {
+                $rateLimitInfo = array(
+                    'limit' => (int) $decoded['limit'],
+                    'used' => (int) $decoded['used'],
+                    'remaining' => (int) $decoded['remaining'],
+                );
+            }
+        }
+
+        $attempts[] = array(
+            'url' => $url,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            $lastError = 'Erro de conexão: '.$curlErr;
+            continue;
+        }
+
+        if ($status === 200 && $rateLimitInfo !== null) {
+            return array(
+                'ok' => true,
+                'status' => 200,
+                'attempts' => $attempts,
+                'rate_limit' => $rateLimitInfo,
+                'error' => null,
+            );
+        }
+    }
+
+    return array(
+        'ok' => false,
+        'status' => $lastStatus,
+        'attempts' => $attempts,
+        'rate_limit' => $rateLimitInfo,
+        'error' => $lastError ? $lastError : 'Não foi possível consultar status da quota pública.',
+    );
+}
+
+/**
  * Busca informações do usuário autenticado via /api/dolibarr/private/me
  * 
  * @param string $configuredUrl URL configurada no setup (ex: https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview)
