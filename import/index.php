@@ -310,7 +310,9 @@ if ($action === 'import') {
 
             if (empty($quota['ok'])) {
                 $quotaStopped = true;
-                if (!empty($quota['auth_error'])) {
+                if (empty($apiToken)) {
+                    print '<div class="error">🔒 Registre-se gratuitamente para conseguir importar faturas. API publica nao importa faturas.</div>';
+                } elseif (!empty($quota['auth_error'])) {
                     print '<div class="error">🔒 '.$quota['auth_error'].'</div>';
                 } elseif (!empty($quota['rate_limit_error'])) {
                     print '<div class="error">❌ '.$quota['rate_limit_error'].'</div>';
