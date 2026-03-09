@@ -115,15 +115,14 @@ if (!$user->admin) {
  * ==========================================================
  */
 
-// URL da API (pública/preview). Tu podes apontar para:
-// - interno: https://saft-validator.dev.cialinux.com/api/public/validate/preview
-// - externo: https://saft-validator.dev.cialinux.com:2000/api/public/validate/preview
+// URL da API (pública/preview no namespace Dolibarr).
+// Exemplo recomendado: https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview
 $item = $formSetup->newItem('SAFT_API_URL');
 $item->nameText = 'SAFT Validator API URL (preview)';
-$item->helpText = 'URL do endpoint /api/public/validate/preview do serviço saft-validator.';
+$item->helpText = 'URL do endpoint /api/dolibarr/public/validate/preview do serviço saft-validator.';
 $item->fieldParams['isMandatory'] = 1;
-$item->defaultFieldValue = (empty($_SERVER['HTTPS']) ? 'http://' : 'https://') . $_SERVER['HTTP_HOST'] . '/api/public/validate/preview';
-$item->fieldAttr['placeholder'] = 'https://saft-validator.dev.cialinux.com/api/public/validate/preview';
+$item->defaultFieldValue = (empty($_SERVER['HTTPS']) ? 'http://' : 'https://') . $_SERVER['HTTP_HOST'] . '/api/dolibarr/public/validate/preview';
+$item->fieldAttr['placeholder'] = 'https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview';
 $item->cssClass = 'minwidth500';
 
 // Verificação TLS ao chamar a API (em ambientes com CA/self-signed normalmente fica "Não")

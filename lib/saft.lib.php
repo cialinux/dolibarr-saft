@@ -128,8 +128,8 @@ function saft_url_with_params($baseUrl, $params)
  *
  * @param string $configuredUrl URL configurada no setup
  * @param string $apiToken token opcional
- * @param string $publicEndpoint endpoint público (ex: /api/public/validate/preview)
- * @param string $privateEndpoint endpoint privado (ex: /api/private/validate/preview)
+ * @param string $publicEndpoint endpoint público (ex: /api/dolibarr/public/validate/preview)
+ * @param string $privateEndpoint endpoint privado (ex: /api/dolibarr/private/validate/preview)
  * @return string
  */
 function saft_resolve_mode_endpoint_url($configuredUrl, $apiToken, $publicEndpoint, $privateEndpoint)
@@ -150,8 +150,8 @@ function saft_resolve_mode_endpoint_url($configuredUrl, $apiToken, $publicEndpoi
 
 /**
  * Consome quota (rate limit) na API correta de forma automática:
- * - com token => /api/private/consume-quota + X-API-Key
- * - sem token => /api/public/consume-quota
+ * - com token => /api/dolibarr/private/consume-quota + X-API-Key
+ * - sem token => /api/dolibarr/public/consume-quota
  *
  * @param string $configuredPreviewUrl
  * @param string $apiToken
@@ -164,8 +164,8 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
     $quotaUrl = saft_resolve_mode_endpoint_url(
         $configuredPreviewUrl,
         $apiToken,
-        '/api/public/consume-quota',
-        '/api/private/consume-quota'
+        '/api/dolibarr/public/consume-quota',
+        '/api/dolibarr/private/consume-quota'
     );
 
     if ($quotaUrl === '') {
@@ -294,9 +294,9 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
 }
 
 /**
- * Busca informações do usuário autenticado via /api/private/me
+ * Busca informações do usuário autenticado via /api/dolibarr/private/me
  * 
- * @param string $configuredUrl URL configurada no setup (ex: https://saft-validator.dev.cialinux.com/api/public/validate/preview)
+ * @param string $configuredUrl URL configurada no setup (ex: https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview)
  * @param string $apiToken Token API
  * @param bool $verifyTls Se deve verificar certificado SSL
  * @return array {ok: bool, data?: array, error?: string}
@@ -307,12 +307,12 @@ function saft_get_authenticated_user($configuredUrl, $apiToken, $verifyTls = fal
         return array('ok' => false, 'error' => 'Token vazio');
     }
 
-    // Resolver URL do endpoint /api/private/me
+    // Resolver URL do endpoint /api/dolibarr/private/me
     $meUrl = saft_resolve_mode_endpoint_url(
         $configuredUrl,
         $apiToken,
         '',  // não usado para privado
-        '/api/private/me'
+        '/api/dolibarr/private/me'
     );
 
     if (empty($meUrl)) {
@@ -400,7 +400,7 @@ function saft_validate_api_token($apiToken, $baseUrl, $verifyTls = false)
  * @param string $xmlFilePath  Caminho do XML gravado no disco
  * @param int $page
  * @param int $perPage
- * @param array $opts ['api_url' => 'https://.../api/public/validate/preview', 'verify_tls' => bool, 'timeout' => int, 'api_token' => 'optional_token']
+ * @param array $opts ['api_url' => 'https://.../api/dolibarr/public/validate/preview', 'verify_tls' => bool, 'timeout' => int, 'api_token' => 'optional_token']
  * @return array { data?, status, used_url?, attempts[], curl_error?, rate_limit: {limit, used, remaining}, auth_error? }
  */
 function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
@@ -420,8 +420,8 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
     $apiUrl = saft_resolve_mode_endpoint_url(
         $apiUrl,
         $apiToken,
-        '/api/public/validate/preview',
-        '/api/private/validate/preview'
+        '/api/dolibarr/public/validate/preview',
+        '/api/dolibarr/private/validate/preview'
     );
 
     if (empty($apiUrl)) {
