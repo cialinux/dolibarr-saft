@@ -245,6 +245,7 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
         );
 
         if ($curlErr) {
+            $attempts[]['error_human'] = 'Falha de conectividade ao webservice SAF-T. Verifique URL, DNS, rede e certificado.';
             continue;
         }
 
@@ -270,6 +271,31 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
             );
         }
 
+        if ($status === 503) {
+            $decoded = is_string($body) ? json_decode($body, true) : null;
+            if (is_array($decoded) && !empty($decoded['code']) && $decoded['code'] === 'module_runtime_disabled') {
+                return array(
+                    'ok' => false,
+                    'status' => 503,
+                    'attempts' => $attempts,
+                    'rate_limit' => $rateLimitInfo,
+                    'error' => 'Integração temporariamente desativada no webservice (modo proteção).',
+                    'auth_error' => $authError,
+                    'rate_limit_error' => null,
+                );
+            }
+
+            return array(
+                'ok' => false,
+                'status' => 503,
+                'attempts' => $attempts,
+                'rate_limit' => $rateLimitInfo,
+                'error' => 'Webservice SAF-T indisponível no momento (HTTP 503).',
+                'auth_error' => $authError,
+                'rate_limit_error' => null,
+            );
+        }
+
         if ($status === 200) {
             return array(
                 'ok' => true,
@@ -289,7 +315,7 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
         'rate_limit' => $rateLimitInfo,
         'rate_limit_error' => $rateLimitError,
         'auth_error' => $authError,
-        'error' => 'Não foi possível consumir quota na API.',
+        'error' => 'Falha de conectividade ao webservice SAF-T. Não foi possível consumir quota.',
     );
 }
 
@@ -470,7 +496,7 @@ function saft_get_authenticated_user($configuredUrl, $apiToken, $verifyTls = fal
         curl_close($ch);
 
         if ($curlErr) {
-            $lastError = 'Erro de conexão: ' . $curlErr;
+            $lastError = 'Falha de conectividade ao webservice SAF-T: ' . $curlErr;
             continue;
         }
 
@@ -486,6 +512,14 @@ function saft_get_authenticated_user($configuredUrl, $apiToken, $verifyTls = fal
 
         if ($httpCode === 401 || $httpCode === 403) {
             return array('ok' => false, 'error' => 'Token inválido ou expirado');
+        }
+
+        if ($httpCode === 503 && is_string($response)) {
+            $decoded = json_decode($response, true);
+            if (is_array($decoded) && !empty($decoded['code']) && $decoded['code'] === 'module_runtime_disabled') {
+                return array('ok' => false, 'error' => 'Integração temporariamente desativada no webservice (modo proteção).');
+            }
+            return array('ok' => false, 'error' => 'Webservice SAF-T indisponível no momento (HTTP 503).');
         }
 
         $lastError = 'Resposta inesperada do servidor (HTTP '.$httpCode.')';
@@ -541,6 +575,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
     $rateLimitInfo = null;  // SEMPRE null - só preenchido se API retornar headers
     $apiAuthError = null;
     $rateLimitError = null;  // Novo: erro de rate limit (quota excedida)
+    $serviceError = null;
 
     $apiUrl = saft_resolve_mode_endpoint_url(
         $apiUrl,
@@ -660,6 +695,16 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             continue;  // tentar próxima candidata
         }
 
+        if ($status === 503) {
+            $decoded503 = is_string($body) ? json_decode($body, true) : null;
+            if (is_array($decoded503) && !empty($decoded503['code']) && $decoded503['code'] === 'module_runtime_disabled') {
+                $serviceError = 'Integração temporariamente desativada no webservice (modo proteção).';
+            } else {
+                $serviceError = 'Webservice SAF-T indisponível no momento (HTTP 503).';
+            }
+            continue;
+        }
+
         // Verificar erro de rate limit (quota excedida)
         if ($status === 429) {
             $quotaPeriodText = !empty($apiToken) ? 'mensais' : 'diárias';
@@ -695,5 +740,6 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
         'rate_limit' => $rateLimitInfo,
         'auth_error' => $apiAuthError,
         'rate_limit_error' => $rateLimitError,
+        'error' => $serviceError ? $serviceError : 'Falha de conectividade ao webservice SAF-T.',
     );
 }

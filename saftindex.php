@@ -111,7 +111,11 @@ if ($action === 'validate') {
                 $error = '❌ ' . $res['rate_limit_error'];
                 // Quota excedida - não processar nada
             } elseif (empty($res['data'])) {
-                $error = 'Erro ao validar SAF-T.';
+                if (!empty($res['error'])) {
+                    $error = '❌ ' . $res['error'];
+                } else {
+                    $error = '❌ Falha de conectividade ao webservice SAF-T.';
+                }
             } else {
                 $data = $res['data'];
             }
