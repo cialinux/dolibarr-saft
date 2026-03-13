@@ -1,93 +1,138 @@
-# SAF-T Portugal para [DOLIBARR ERP & CRM](https://www.dolibarr.org)
+# SAF-T Portugal – Dolibarr Module & API Platform
 
-## Recursos
+## O que é o SAF-T (PT)
 
-O objetivo deste modulo Saf-T é para consultar ficheiros saft (xml) e ter a possibilidade de importar a(s) fatura(s) para o dolibarr.
+O **SAF-T PT (Standard Audit File for Tax Purposes – Portuguese Version)** é um ficheiro normalizado em formato **XML** que contém um conjunto estruturado de informações fiscais e contabilísticas de uma empresa.
 
-<!--
-![Screenshot saft](img/screenshot_saft.png?raw=true "Saft"){imgmd}
--->
+Este ficheiro é utilizado para comunicar informação relevante à **Autoridade Tributária e Aduaneira (AT)** e inclui dados como:
 
+- Faturas
+- Notas de crédito
+- Notas de débito
+- Recibos
+- Documentos de transporte
 
-## Tradução
+O SAF-T é obrigatório para empresas que utilizam software de faturação certificado em Portugal.
 
-No momento o modulo está na lingua portuguesa e no futuro a edição para outras linguas será possível em `langs`.
+📚 Fonte oficial:
+https://info.portaldasfinancas.gov.pt
 
-<!--
-This module contains also a sample configuration for Transifex, under the hidden directory [.tx](.tx), so it is possible to manage translation using this service.
+---
 
-For more information, see the [translator's documentation](https://wiki.dolibarr.org/index.php/Translator_documentation).
+# Módulo SAF-T Portugal para Dolibarr
 
-There is a [Transifex project](https://transifex.com/projects/p/dolibarr-module-template) for this module.
--->
+O módulo **SAF-T Portugal para Dolibarr** permite validar e importar automaticamente faturas a partir de ficheiros SAF-T (PT), garantindo integridade dos dados e facilitando processos de migração, auditoria ou integração entre sistemas.
 
+Este módulo foi desenvolvido para **empresas, contabilistas e integradores** que necessitam importar documentos fiscais de forma segura e controlada para dentro do ERP **Dolibarr**.
 
-## Instalação
+---
 
-Pre-requisitos: Voce precisa ter o sistema Dolibarr ERP & CRM software instalado. Você pode fazer o donwload aqui [Dolistore.org](https://www.dolibarr.org).
+## Funcionalidades do módulo
 
+### Validação de ficheiros SAF-T
 
-### A partir do arquivo ZIP and interface GUI
+O módulo inclui um sistema completo de validação que permite analisar o ficheiro antes da importação.
 
-Nome `module_saft-2.0.zip` (e.g., Quando o download é feito a partir do marketplace como [Dolistore](https://www.dolistore.com)), clique no menu `Home> Setup> Modules> Deploy external module` e faça upload do arquivo zip.
+Funções disponíveis:
 
-<!--
+- Validação da estrutura XML
+- Leitura completa do ficheiro SAF-T
+- Identificação do número total de documentos
+- Visualização das faturas antes da importação
+- Verificação de integridade das informações fiscais
 
-Note: If this screen tells you that there is no "custom" directory, check that your setup is correct:
+Isto permite identificar problemas antes de importar dados para o ERP.
 
-- In your Dolibarr installation directory, edit the `htdocs/conf/conf.php` file and check that following lines are not commented:
+---
 
-    ```php
-    //$dolibarr_main_url_root_alt ...
-    //$dolibarr_main_document_root_alt ...
-    ```
+### Importação de faturas
 
-- Uncomment them if necessary (delete the leading `//`) and assign the proper value according to your Dolibarr installation
+O módulo permite importar faturas diretamente a partir do ficheiro SAF-T para o Dolibarr.
 
-    For example :
+A importação pode ser feita:
 
-    - UNIX:
-        ```php
-        $dolibarr_main_url_root_alt = '/custom';
-        $dolibarr_main_document_root_alt = '/var/www/Dolibarr/htdocs/custom';
-        ```
+- Individualmente
+- Em massa (batch import)
 
-    - Windows:
-        ```php
-        $dolibarr_main_url_root_alt = '/custom';
-        $dolibarr_main_document_root_alt = 'C:/My Web Sites/Dolibarr/htdocs/custom';
-        ```
--->
+Durante o processo o sistema executa múltiplos controlos automáticos.
 
-<!--
+---
 
-### From a GIT repository
+### Controlo de duplicação
 
-Clone the repository in `$dolibarr_main_document_root_alt/saft`
+Para garantir integridade da base de dados, o módulo inclui verificação automática de duplicados.
 
-```shell
-cd ....../custom
-git clone git@github.com:gitlogin/saft.git saft
-```
+O sistema:
 
--->
+- Identifica faturas já existentes no ERP
+- Bloqueia a importação de documentos duplicados
+- Detecta duplicações dentro do próprio ficheiro SAF-T
 
-### Passos finais
+Além disso, apresenta contadores detalhados:
 
-Use seu navegador:
+- Total de faturas no ficheiro
+- Número de faturas duplicadas no ERP
+- Número de faturas duplicadas no XML
+- Número de faturas prontas para importação
 
-  - Faça login no Dolibarr como super-administrator
-  - Vá em "Setup"> "Modules"
-  - Você estará apto a procurar o modulo e ativa-lo
+---
 
+### Registo automático de clientes
 
+Durante a importação o sistema verifica se o cliente já existe no ERP.
 
-## Licenses
+Caso não exista, o cliente é criado automaticamente com base nos dados presentes no SAF-T.
 
-### Main code
+Informações importadas:
 
-GPLv3 or (at your option) any later version. See file COPYING for more information.
+- Nome do cliente
+- NIF
+- Morada completa
+- País
+- Código postal
+- Cidade
 
-### Documentation
+Isto permite realizar **migrações completas de sistemas sem necessidade de cadastro manual**.
 
-All texts and readme's are licensed under [GFDL](https://www.gnu.org/licenses/fdl-1.3.en.html).
+---
+
+### Registo completo de informação fiscal
+
+Cada fatura importada mantém informações relevantes para auditoria e rastreabilidade.
+
+O sistema guarda automaticamente nas notas do documento:
+
+- Origem da importação (SAF-T)
+- Data da importação
+- Número oficial da fatura
+- Hash do documento
+- Controlo de hash
+- SourceID
+- Data original de geração do documento
+- Código da taxa de exceção
+- Motivo da taxa de exceção
+
+Isto garante rastreabilidade completa do documento fiscal.
+
+---
+
+## Benefícios do módulo
+
+- Importação rápida de grandes volumes de documentos
+- Migração simplificada entre sistemas de faturação
+- Controlo automático de duplicações
+- Criação automática de clientes
+- Preservação da integridade fiscal dos documentos
+- Integração nativa com Dolibarr
+
+---
+
+## Casos de uso
+
+Este módulo é ideal para:
+
+- Empresas que estão a migrar de outro ERP
+- Contabilistas que recebem ficheiros SAF-T de clientes
+- Integradores Dolibarr
+- Auditorias fiscais
+- Consolidação de sistemas de faturação
