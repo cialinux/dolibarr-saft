@@ -51,6 +51,48 @@ function saftAdminPrepareHead()
     return $head;
 }
 
+/**
+ * Retorna a configuracao fechada de ambiente do webservice SAF-T.
+ * A URL fica encapsulada no codigo e o utilizador escolhe apenas o ambiente.
+ *
+ * @param string $env
+ * @return array{env:string,label:string,api_url:string,verify_tls:bool}
+ */
+function saft_get_environment_config($env = '')
+{
+    $env = strtolower(trim((string) $env));
+    if ($env !== 'production') {
+        $env = 'dev';
+    }
+
+    if ($env === 'production') {
+        return array(
+            'env' => 'production',
+            'label' => 'Ambiente production',
+            'api_url' => 'https://saft-validator.cialinux.com/api/dolibarr/public/validate/preview',
+            'verify_tls' => true,
+        );
+    }
+
+    return array(
+        'env' => 'dev',
+        'label' => 'Ambiente dev',
+        'api_url' => 'https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview',
+        'verify_tls' => false,
+    );
+}
+
+/**
+ * Retorna a configuracao efetiva do ambiente selecionado no modulo.
+ *
+ * @return array{env:string,label:string,api_url:string,verify_tls:bool}
+ */
+function saft_get_runtime_api_config()
+{
+    $env = function_exists('getDolGlobalString') ? getDolGlobalString('SAFT_API_ENV', 'dev') : 'dev';
+    return saft_get_environment_config($env);
+}
+
 /* ============================================================
  * Helpers do módulo (API preview)
  * ============================================================ */
@@ -172,7 +214,7 @@ function saft_consume_quota($configuredPreviewUrl, $apiToken, $verifyTls = false
         return array(
             'ok' => false,
             'status' => 0,
-            'error' => 'Missing api_url (SAFT_API_URL)',
+            'error' => 'Missing API configuration.',
             'attempts' => array(),
             'rate_limit' => null,
         );
@@ -340,7 +382,7 @@ function saft_get_public_quota_status($configuredPreviewUrl, $verifyTls = false,
         return array(
             'ok' => false,
             'status' => 0,
-            'error' => 'Missing api_url (SAFT_API_URL)',
+            'error' => 'Missing API configuration.',
             'attempts' => array(),
             'rate_limit' => null,
         );
@@ -589,7 +631,7 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
             'data' => null,
             'used_url' => null,
             'attempts' => array(),
-            'error' => 'Missing api_url (SAFT_API_URL)',
+            'error' => 'Missing API configuration.',
             'rate_limit' => null,
         );
     }

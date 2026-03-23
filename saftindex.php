@@ -16,9 +16,10 @@ $action    = GETPOST('action', 'aZ09');
 $page      = max(1, GETPOSTINT('page'));
 $tokenXml  = GETPOST('tokenxml', 'alphanohtml');   // tem que persistir entre requests
 
-$apiUrlPreview = getDolGlobalString('SAFT_API_URL', '');
+$apiRuntime    = saft_get_runtime_api_config();
+$apiUrlPreview = $apiRuntime['api_url'];
 $apiToken      = getDolGlobalString('SAFT_API_TOKEN', '');
-$verifyTls     = (bool) getDolGlobalInt('SAFT_VERIFY_TLS', 0);
+$verifyTls     = (bool) $apiRuntime['verify_tls'];
 $perPage       = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
 $clientDebug   = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 1);
 
@@ -139,7 +140,7 @@ print '  <div class="fichehalfleft">';
 
 print '    <div class="card" style="padding:16px;">';
 print '      <h2>Validador SAF-T (Portugal)</h2>';
-print '      <div class="opacitymedium">API: '.dol_escape_htmltag($apiUrlPreview).'</div>';
+print '      <div class="opacitymedium">'.dol_escape_htmltag($apiRuntime['label']).' | TLS '.($verifyTls ? 'ativo' : 'desativado').'</div>';
 print '      <div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '        <strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
 if ($rateLimit) {

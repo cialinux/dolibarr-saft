@@ -22,9 +22,10 @@ $form = new Form($db);
 $action   = GETPOST('action', 'aZ09');
 $tokenxml = GETPOST('tokenxml', 'alpha');
 
-$apiUrlPreview = getDolGlobalString('SAFT_API_URL', '');
+$apiRuntime    = saft_get_runtime_api_config();
+$apiUrlPreview = $apiRuntime['api_url'];
 $apiToken      = getDolGlobalString('SAFT_API_TOKEN', '');
-$verifyTls     = (bool) getDolGlobalInt('SAFT_VERIFY_TLS', 0);
+$verifyTls     = (bool) $apiRuntime['verify_tls'];
 $perPage       = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
 
 $rateLimit = null;  // Sempre obtido da resposta da API
@@ -59,12 +60,14 @@ print '<div class="fichecenter"><div class="card" style="padding:16px;">';
 // Mostrar modo e limites
 print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '<strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
+print ' | <strong>Ambiente:</strong> '.dol_escape_htmltag($apiRuntime['label']);
 if ($rateLimit !== null && isset($rateLimit['limit'])) {
     $periodLabel = ($apiMode === 'private') ? 'consultas/mes' : 'consultas/dia';
     print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' '.$periodLabel;
 } else {
     print ' | <strong>Limites:</strong> Disponivel durante a importacao';
 }
+print ' | <strong>TLS:</strong> '.($verifyTls ? 'ativo' : 'desativado');
 print ' | <strong>file size limit:</strong> max 1mb';
 print '</div>';
 print '<br>';
