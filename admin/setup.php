@@ -88,12 +88,6 @@ $type = 'myobject';
 $error = 0;
 $setupnotempty = 0;
 
-// Access control
-if (!$user->admin) {
-        accessforbidden();
-}
-
-
 // Set this to 1 to use the factory to manage constants. Warning, the generated module will be compatible with version v15+ only
 $useFormSetup = 1;
 
@@ -167,56 +161,17 @@ if ($tmpobjectkey && !array_key_exists($tmpobjectkey, $myTmpObjects)) {
  * Actions
  */
 
-if ($action === 'save_saft_env' && !empty($user->admin)) {
+if ($action === 'update' && !empty($user->admin) && GETPOSTISSET('SAFT_API_ENV')) {
         $envConfig = saft_get_environment_config(GETPOST('SAFT_API_ENV', 'alpha'));
 
         $resEnv = dolibarr_set_const($db, 'SAFT_API_ENV', $envConfig['env'], 'chaine', 0, '', $conf->entity);
         $resUrl = dolibarr_set_const($db, 'SAFT_API_URL', $envConfig['api_url'], 'chaine', 0, '', $conf->entity);
         $resTls = dolibarr_set_const($db, 'SAFT_VERIFY_TLS', $envConfig['verify_tls'] ? '1' : '0', 'yesno', 0, '', $conf->entity);
 
-        if ($resEnv > 0 && $resUrl > 0 && $resTls > 0) {
-                setEventMessages('Ambiente SAF-T atualizado com sucesso.', null, 'mesgs');
-        } else {
+        if (!($resEnv > 0 && $resUrl > 0 && $resTls > 0)) {
                 setEventMessages('Falha ao atualizar o ambiente SAF-T.', null, 'errors');
         }
 
-        $action = 'edit';
-}
-
-// TEMPORARIAMENTE DESABILITADO - Focar primeiro na API pública
-// A validação de token será reativada depois que a API pública estiver funcionando
-if (false && $action == 'update' && GETPOSTISSET('SAFT_API_TOKEN')) {
-        $tokenToValidate = GETPOST('SAFT_API_TOKEN', 'alpha');
-        $envConfig = saft_get_environment_config(GETPOST('SAFT_API_ENV', 'alpha'));
-        $apiUrl = $envConfig['api_url'];
-        $verifyTls = $envConfig['verify_tls'] ? 1 : 0;
-        
-        // Se token foi fornecido (não vazio), validar
-        if (!empty($tokenToValidate)) {
-                $validation = saft_validate_api_token($tokenToValidate, $apiUrl, (bool) $verifyTls);
-                
-                if (!$validation['valid']) {
-                        setEventMessages('❌ Token inválido: ' . $validation['error'], null, 'errors');
-                        $action = 'edit'; // Voltar para edição sem salvar
-                } else {
-                        // Token válido - mostrar dados do usuário
-                        $userData = $validation['user_data'];
-                        $nif = !empty($userData['nif']) ? $userData['nif'] : 'N/A';
-                        $email = !empty($userData['email']) ? $userData['email'] : 'N/A';
-                        $accountType = !empty($userData['account_type']) ? $userData['account_type'] : 'limited';
-                        $dailyLimit = !empty($userData['daily_limit']) ? $userData['daily_limit'] : 50;
-                        
-                        setEventMessages(
-                                '✅ Token validado com sucesso!<br>'.
-                                '👤 NIF: ' . $nif . '<br>'.
-                                '📧 Email: ' . $email . '<br>'.
-                                '🔑 Tipo de conta: ' . $accountType . '<br>'.
-                                '📊 Limite diário: ' . $dailyLimit . ' consultas',
-                                null,
-                                'mesgs'
-                        );
-                }
-        }
 }
 
 // For retrocompatibility Dolibarr < 15.0
@@ -361,9 +316,6 @@ if (empty($setupnotempty)) {
 $envConfig = saft_get_runtime_api_config();
 
 print '<div class="div-table-responsive-no-min" style="margin: 0 0 16px 0;">';
-print '<form method="POST" action="'.$_SERVER['PHP_SELF'].'">';
-print '<input type="hidden" name="token" value="'.newToken().'">';
-print '<input type="hidden" name="action" value="save_saft_env">';
 print '<table class="noborder centpercent">';
 print '<tr class="liste_titre"><td colspan="2">Ambiente do webservice SAF-T</td></tr>';
 print '<tr><td class="titlefield">Ambiente</td><td>';
@@ -371,14 +323,29 @@ print '<select name="SAFT_API_ENV" class="minwidth200">';
 print '<option value="dev"'.($envConfig['env'] === 'dev' ? ' selected' : '').'>Ambiente dev</option>';
 print '<option value="production"'.($envConfig['env'] === 'production' ? ' selected' : '').'>Ambiente production</option>';
 print '</select>';
-print '<div class="opacitymedium">A URL do endpoint e a politica TLS ficam ocultas e sao definidas automaticamente pelo ambiente selecionado.</div>';
 print '</td></tr>';
-print '<tr><td>TLS</td><td>'.($envConfig['verify_tls'] ? 'Ativado automaticamente' : 'Desativado automaticamente').'</td></tr>';
-print '<tr><td>Endpoint</td><td>Oculto na interface</td></tr>';
 print '</table>';
-print '<div style="margin-top:12px;"><input type="submit" class="button button-save" value="Guardar ambiente"></div>';
-print '</form>';
 print '</div>';
+
+print '<script>';
+print '(function(){';
+print 'var envSelect = document.querySelector("select[name=\"SAFT_API_ENV\"]");';
+print 'if (!envSelect) return;';
+print 'var saveButton = document.querySelector("input.button-save[type=\"submit\"], button.button-save[type=\"submit\"]");';
+print 'var mainForm = saveButton && saveButton.form ? saveButton.form : document.querySelector("form");';
+print 'if (!mainForm) return;';
+print 'mainForm.addEventListener("submit", function(){';
+print 'var hiddenEnv = mainForm.querySelector("input[name=\"SAFT_API_ENV\"]");';
+print 'if (!hiddenEnv) {';
+print 'hiddenEnv = document.createElement("input");';
+print 'hiddenEnv.type = "hidden";';
+print 'hiddenEnv.name = "SAFT_API_ENV";';
+print 'mainForm.appendChild(hiddenEnv);';
+print '}';
+print 'hiddenEnv.value = envSelect.value;';
+print '});';
+print '})();';
+print '</script>';
 
 // Mostrar informações do usuário autenticado (se token configurado)
 $envConfig = saft_get_runtime_api_config();
@@ -389,7 +356,7 @@ $verifyTls = (bool) $envConfig['verify_tls'];
 if (!empty($apiToken)) {
         print '<br><div class="info" style="padding:16px; border-left:4px solid #28a745;">';
         print '<h3>🔒 API Privada Configurada</h3>';
-        print '<div class="opacitymedium">'.$envConfig['label'].' | TLS '.($verifyTls ? 'ativo' : 'desativado').'</div><br>';
+        print '<div class="opacitymedium">'.$envConfig['label'].'</div><br>';
         
         $userInfo = saft_get_authenticated_user($apiUrl, $apiToken, $verifyTls);
         

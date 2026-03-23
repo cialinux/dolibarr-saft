@@ -44,26 +44,24 @@ $rateLimit = null;  // Será preenchido pela resposta da API
 $apiMode = !empty($apiToken) ? 'private' : 'public';  // Modo baseado na configuração
 
 // Buscar limites imediatamente ao carregar a página (em vez de esperar validação)
-if (empty($rateLimit)) {
-    if (!empty($apiToken)) {
-        // Modo privado: buscar dados do usuário
-        $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
-        if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
-            $userData = $userInfo['data'];
-            $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 15;
-            $usageToday = !empty($userData['usage_month']) ? (int)$userData['usage_month'] : (!empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0);
-            $rateLimit = array(
-                'limit' => $dailyLimit,
-                'used' => $usageToday,
-                'remaining' => max(0, $dailyLimit - $usageToday),
-            );
-        }
-    } else {
-        // Modo público: consultar status sem consumo para exibir limites no menu.
-        $tempCheck = saft_get_public_quota_status($apiUrlPreview, $verifyTls, 5);
-        if (!empty($tempCheck['rate_limit'])) {
-            $rateLimit = $tempCheck['rate_limit'];
-        }
+if (!empty($apiToken)) {
+    // Modo privado: buscar dados do usuário
+    $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
+    if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
+        $userData = $userInfo['data'];
+        $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 15;
+        $usageToday = !empty($userData['usage_month']) ? (int)$userData['usage_month'] : (!empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0);
+        $rateLimit = array(
+            'limit' => $dailyLimit,
+            'used' => $usageToday,
+            'remaining' => max(0, $dailyLimit - $usageToday),
+        );
+    }
+} else {
+    // Modo público: consultar status sem consumo para exibir limites no menu.
+    $tempCheck = saft_get_public_quota_status($apiUrlPreview, $verifyTls, 5);
+    if (!empty($tempCheck['rate_limit'])) {
+        $rateLimit = $tempCheck['rate_limit'];
     }
 }
 
@@ -140,7 +138,7 @@ print '  <div class="fichehalfleft">';
 
 print '    <div class="card" style="padding:16px;">';
 print '      <h2>Validador SAF-T (Portugal)</h2>';
-print '      <div class="opacitymedium">'.dol_escape_htmltag($apiRuntime['label']).' | TLS '.($verifyTls ? 'ativo' : 'desativado').'</div>';
+print '      <div class="opacitymedium">'.dol_escape_htmltag($apiRuntime['label']).'</div>';
 print '      <div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '        <strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
 if ($rateLimit) {

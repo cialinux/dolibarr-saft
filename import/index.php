@@ -35,20 +35,18 @@ if (!empty($apiToken)) {
 }
 
 // Buscar limites imediatamente ao carregar a página
-if (empty($rateLimit)) {
-    if (!empty($apiToken)) {
-        // Modo privado: buscar dados do usuário
-        $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
-        if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
-            $userData = $userInfo['data'];
-            $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 15;
-            $usageToday = !empty($userData['usage_month']) ? (int)$userData['usage_month'] : (!empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0);
-            $rateLimit = array(
-                'limit' => $dailyLimit,
-                'used' => $usageToday,
-                'remaining' => max(0, $dailyLimit - $usageToday),
-            );
-        }
+if (!empty($apiToken)) {
+    // Modo privado: buscar dados do usuário
+    $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
+    if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
+        $userData = $userInfo['data'];
+        $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 15;
+        $usageToday = !empty($userData['usage_month']) ? (int)$userData['usage_month'] : (!empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0);
+        $rateLimit = array(
+            'limit' => $dailyLimit,
+            'used' => $usageToday,
+            'remaining' => max(0, $dailyLimit - $usageToday),
+        );
     }
 }
 
@@ -67,7 +65,6 @@ if ($rateLimit !== null && isset($rateLimit['limit'])) {
 } else {
     print ' | <strong>Limites:</strong> Disponivel durante a importacao';
 }
-print ' | <strong>TLS:</strong> '.($verifyTls ? 'ativo' : 'desativado');
 print ' | <strong>file size limit:</strong> max 1mb';
 print '</div>';
 print '<br>';
