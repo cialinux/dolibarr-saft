@@ -154,7 +154,7 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
     $preview = saft_call_sessions_get(
         $sessionId,
         1,
-        1000,
+        100,
         array(
             'api_url' => $apiUrlPreview,
             'api_token' => $apiToken,

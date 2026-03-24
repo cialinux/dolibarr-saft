@@ -77,10 +77,11 @@ if ($action === 'validate') {
     }
 
     if (!$error && $sessionId !== '') {
+        $apiPerPage = min(100, max(1, $perPage)); // Cap at API limit of 100
         $get = saft_call_sessions_get(
             $sessionId,
             $page,
-            $perPage,
+            $apiPerPage,
             array(
                 'api_url' => $apiUrlPreview,
                 'api_token' => $apiToken,
