@@ -785,3 +785,419 @@ function saft_call_preview_api($xmlFilePath, $page, $perPage, $opts = array())
         'error' => $serviceError ? $serviceError : 'Falha de conectividade ao webservice SAF-T.',
     );
 }
+
+/**
+ * Build full URL for a fixed endpoint path using the configured preview URL base.
+ *
+ * @param string $configuredPreviewUrl
+ * @param string $endpointPath
+ * @return string
+ */
+function saft_build_endpoint_url($configuredPreviewUrl, $endpointPath)
+{
+    $configuredPreviewUrl = trim((string) $configuredPreviewUrl);
+    $endpointPath = '/'.ltrim((string) $endpointPath, '/');
+
+    if ($configuredPreviewUrl === '') {
+        return '';
+    }
+
+    $p = @parse_url($configuredPreviewUrl);
+    if (!is_array($p) || empty($p['host'])) {
+        return '';
+    }
+
+    $scheme = !empty($p['scheme']) ? $p['scheme'] : 'https';
+    $host = $p['host'];
+    $port = !empty($p['port']) ? (':'.$p['port']) : '';
+
+    return $scheme.'://'.$host.$port.$endpointPath;
+}
+
+/**
+ * Call Phase 2 create session endpoint.
+ *
+ * @param string $xmlFilePath
+ * @param array $opts ['api_url','api_token','verify_tls','timeout','user_nif']
+ * @return array
+ */
+function saft_call_sessions_create($xmlFilePath, $opts = array())
+{
+    $apiUrl = !empty($opts['api_url']) ? (string) $opts['api_url'] : '';
+    $apiToken = !empty($opts['api_token']) ? (string) $opts['api_token'] : '';
+    $verifyTls = !empty($opts['verify_tls']) ? true : false;
+    $timeout = !empty($opts['timeout']) ? (int) $opts['timeout'] : 60;
+    $userNif = !empty($opts['user_nif']) ? trim((string) $opts['user_nif']) : '';
+
+    if (!is_readable($xmlFilePath)) {
+        return array('data' => null, 'status' => 0, 'error' => 'XML file not readable: '.$xmlFilePath, 'attempts' => array());
+    }
+
+    $url = saft_build_endpoint_url($apiUrl, '/api/dolibarr/sessions');
+    if ($url === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+    if ($userNif !== '') {
+        $url = saft_url_with_params($url, array('nif' => $userNif));
+    }
+
+    $attempts = array();
+    $lastStatus = 0;
+
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $ch = curl_init();
+        $headers = array('Accept: application/json', 'Content-Type: multipart/form-data');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => array(
+                'file' => curl_file_create($xmlFilePath, 'application/xml', basename($xmlFilePath)),
+            ),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+
+        $decoded = is_string($body) ? json_decode($body, true) : null;
+        if (is_array($decoded) && ($status === 201 || $status === 200) && !empty($decoded['ok'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+
+        if (is_array($decoded) && !empty($decoded['error'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => (string) $decoded['error'], 'attempts' => $attempts);
+        }
+    }
+
+    return array('data' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao webservice SAF-T.', 'attempts' => $attempts);
+}
+
+/**
+ * Call Phase 2 get session endpoint.
+ *
+ * @param string $sessionId
+ * @param int $page
+ * @param int $perPage
+ * @param array $opts
+ * @return array
+ */
+function saft_call_sessions_get($sessionId, $page, $perPage, $opts = array())
+{
+    $apiUrl = !empty($opts['api_url']) ? (string) $opts['api_url'] : '';
+    $apiToken = !empty($opts['api_token']) ? (string) $opts['api_token'] : '';
+    $verifyTls = !empty($opts['verify_tls']) ? true : false;
+    $timeout = !empty($opts['timeout']) ? (int) $opts['timeout'] : 30;
+
+    $sessionId = trim((string) $sessionId);
+    if ($sessionId === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Session id vazio.', 'attempts' => array());
+    }
+
+    $url = saft_build_endpoint_url($apiUrl, '/api/dolibarr/sessions/'.$sessionId);
+    if ($url === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+    $url = saft_url_with_params($url, array('page' => (int) $page, 'per_page' => (int) $perPage));
+
+    $attempts = array();
+    $lastStatus = 0;
+
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $ch = curl_init();
+        $headers = array('Accept: application/json');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+
+        $decoded = is_string($body) ? json_decode($body, true) : null;
+        if (is_array($decoded) && $status === 200 && !empty($decoded['ok'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+
+        if (is_array($decoded) && !empty($decoded['error'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => (string) $decoded['error'], 'attempts' => $attempts);
+        }
+    }
+
+    return array('data' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao webservice SAF-T.', 'attempts' => $attempts);
+}
+
+/**
+ * Call Phase 2 commit endpoint.
+ *
+ * @param string $sessionId
+ * @param array $selectedIndexes
+ * @param array $opts
+ * @return array
+ */
+function saft_call_sessions_commit($sessionId, $selectedIndexes, $opts = array())
+{
+    $apiUrl = !empty($opts['api_url']) ? (string) $opts['api_url'] : '';
+    $apiToken = !empty($opts['api_token']) ? (string) $opts['api_token'] : '';
+    $verifyTls = !empty($opts['verify_tls']) ? true : false;
+    $timeout = !empty($opts['timeout']) ? (int) $opts['timeout'] : 60;
+    $skipDuplicates = array_key_exists('skip_duplicates', $opts) ? (bool) $opts['skip_duplicates'] : true;
+    $userId = !empty($opts['user_id']) ? (int) $opts['user_id'] : null;
+
+    $sessionId = trim((string) $sessionId);
+    if ($sessionId === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Session id vazio.', 'attempts' => array());
+    }
+
+    $url = saft_build_endpoint_url($apiUrl, '/api/dolibarr/sessions/'.$sessionId.'/commit');
+    if ($url === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+
+    $payload = array(
+        'selected_indices' => array_values(array_map('intval', (array) $selectedIndexes)),
+        'skip_duplicates' => $skipDuplicates,
+        'user_id' => $userId,
+    );
+
+    $attempts = array();
+    $lastStatus = 0;
+
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $ch = curl_init();
+        $jsonPayload = json_encode($payload);
+        $headers = array('Accept: application/json', 'Content-Type: application/json');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $jsonPayload,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+
+        $decoded = is_string($body) ? json_decode($body, true) : null;
+        if (is_array($decoded) && $status === 200 && !empty($decoded['ok'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+
+        if (is_array($decoded) && !empty($decoded['error'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => (string) $decoded['error'], 'attempts' => $attempts);
+        }
+    }
+
+    return array('data' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao webservice SAF-T.', 'attempts' => $attempts);
+}
+
+/**
+ * Call Phase 2 delete session endpoint.
+ *
+ * @param string $sessionId
+ * @param array $opts
+ * @return array
+ */
+function saft_call_sessions_delete($sessionId, $opts = array())
+{
+    $apiUrl = !empty($opts['api_url']) ? (string) $opts['api_url'] : '';
+    $apiToken = !empty($opts['api_token']) ? (string) $opts['api_token'] : '';
+    $verifyTls = !empty($opts['verify_tls']) ? true : false;
+    $timeout = !empty($opts['timeout']) ? (int) $opts['timeout'] : 20;
+
+    $sessionId = trim((string) $sessionId);
+    if ($sessionId === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Session id vazio.', 'attempts' => array());
+    }
+
+    $url = saft_build_endpoint_url($apiUrl, '/api/dolibarr/sessions/'.$sessionId);
+    if ($url === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+
+    $attempts = array();
+    $lastStatus = 0;
+
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $ch = curl_init();
+        $headers = array('Accept: application/json');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_CUSTOMREQUEST => 'DELETE',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+
+        $decoded = is_string($body) ? json_decode($body, true) : null;
+        if ($status === 200 && is_array($decoded) && !empty($decoded['ok'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+
+        if ($status === 404) {
+            return array('data' => $decoded, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+
+        if (is_array($decoded) && !empty($decoded['error'])) {
+            return array('data' => $decoded, 'status' => $status, 'error' => (string) $decoded['error'], 'attempts' => $attempts);
+        }
+    }
+
+    return array('data' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao webservice SAF-T.', 'attempts' => $attempts);
+}

@@ -12,45 +12,29 @@ require_once __DIR__.'/lib/saft.lib.php';
 
 $langs->loadLangs(array("saft@saft"));
 
-$action    = GETPOST('action', 'aZ09');
-$page      = max(1, GETPOSTINT('page'));
-$tokenXml  = GETPOST('tokenxml', 'alphanohtml');   // tem que persistir entre requests
+$action = GETPOST('action', 'aZ09');
+$page = max(1, GETPOSTINT('page'));
+$sessionId = GETPOST('session_id', 'alphanohtml');
 
-$apiRuntime    = saft_get_runtime_api_config();
+$apiRuntime = saft_get_runtime_api_config();
 $apiUrlPreview = $apiRuntime['api_url'];
-$apiToken      = getDolGlobalString('SAFT_API_TOKEN', '');
-$verifyTls     = (bool) $apiRuntime['verify_tls'];
-$perPage       = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
-$clientDebug   = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 1);
-
-/* ==================================================
-   Helpers (mantém XML no disco por "sessão")
-   ================================================== */
-function saftTmpFile($token) {
-    return DOL_DATA_ROOT.'/saft/saft_'.$token.'.xml';
-}
-function saftSaveXml($token, $content) {
-    dol_mkdir(DOL_DATA_ROOT.'/saft');
-    file_put_contents(saftTmpFile($token), $content);
-}
-function saftLoadXml($token) {
-    return file_exists(saftTmpFile($token)) ? file_get_contents(saftTmpFile($token)) : null;
-}
+$apiToken = getDolGlobalString('SAFT_API_TOKEN', '');
+$verifyTls = (bool) $apiRuntime['verify_tls'];
+$perPage = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
+$clientDebug = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 1);
 
 $error = null;
-$data  = null;
+$data = null;
 $debug = null;
-$rateLimit = null;  // Será preenchido pela resposta da API
-$apiMode = !empty($apiToken) ? 'private' : 'public';  // Modo baseado na configuração
+$rateLimit = null;
+$apiMode = !empty($apiToken) ? 'private' : 'public';
 
-// Buscar limites imediatamente ao carregar a página (em vez de esperar validação)
 if (!empty($apiToken)) {
-    // Modo privado: buscar dados do usuário
     $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
     if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
         $userData = $userInfo['data'];
-        $dailyLimit = !empty($userData['daily_limit']) ? (int)$userData['daily_limit'] : 15;
-        $usageToday = !empty($userData['usage_month']) ? (int)$userData['usage_month'] : (!empty($userData['usage_today']) ? (int)$userData['usage_today'] : 0);
+        $dailyLimit = !empty($userData['daily_limit']) ? (int) $userData['daily_limit'] : 15;
+        $usageToday = !empty($userData['usage_month']) ? (int) $userData['usage_month'] : (!empty($userData['usage_today']) ? (int) $userData['usage_today'] : 0);
         $rateLimit = array(
             'limit' => $dailyLimit,
             'used' => $usageToday,
@@ -58,7 +42,6 @@ if (!empty($apiToken)) {
         );
     }
 } else {
-    // Modo público: consultar status sem consumo para exibir limites no menu.
     $tempCheck = saft_get_public_quota_status($apiUrlPreview, $verifyTls, 5);
     if (!empty($tempCheck['rate_limit'])) {
         $rateLimit = $tempCheck['rate_limit'];
@@ -66,73 +49,77 @@ if (!empty($apiToken)) {
 }
 
 if ($action === 'validate') {
-
-    // 1) Se veio ficheiro novo, grava e gera tokenXml novo
     if (!empty($_FILES['file']['tmp_name'])) {
-        $xml = file_get_contents($_FILES['file']['tmp_name']);
-        $tokenXml = dol_print_date(dol_now(), '%Y%m%d%H%M%S').'-'.random_int(1000,9999);
-        saftSaveXml($tokenXml, $xml);
-    } else {
-        // 2) Se não veio ficheiro, tenta recuperar o XML do tokenXml
-        $xml = saftLoadXml($tokenXml);
-        if (!$xml) $error = 'Token expirado. Envie novamente o ficheiro.';
-    }
-
-    // 3) Se temos XML, chama API
-    if (!$error && $xml) {
-        // Validar tamanho do ficheiro (1MB máximo)
-        $fileSize = filesize(saftTmpFile($tokenXml));
-        if ($fileSize > 1 * 1024 * 1024) {
+        if (!empty($_FILES['file']['size']) && (int) $_FILES['file']['size'] > 1 * 1024 * 1024) {
             $error = 'file size limit max 1mb';
         } else {
-            $res = saft_call_preview_api(
-                saftTmpFile($tokenXml),
-                $page,
-                $perPage,
-                [
-                    'api_url'    => $apiUrlPreview,
-                    'api_token'  => $apiToken,
+            $uploadTokenNif = !empty($apiToken) ? (string) $user->login : '';
+            $create = saft_call_sessions_create(
+                $_FILES['file']['tmp_name'],
+                array(
+                    'api_url' => $apiUrlPreview,
+                    'api_token' => $apiToken,
                     'verify_tls' => $verifyTls,
-                    'timeout'    => 60,
-                ]
+                    'timeout' => 60,
+                    'user_nif' => $uploadTokenNif,
+                )
             );
 
-            // SEMPRE capturar limites da resposta (se disponível)
-            if (!empty($res['rate_limit'])) {
-                $rateLimit = $res['rate_limit'];
-            }
-
-            // Se temos erro de autenticação do token
-            if (!empty($res['auth_error'])) {
-                $error = '🔒 ' . $res['auth_error'] . '<br><br>Verifique o token configurado no <a href="admin/setup.php">setup do módulo</a>.';
-                // Token inválido - não processar nada
-            } elseif (!empty($res['rate_limit_error'])) {
-                $error = '❌ ' . $res['rate_limit_error'];
-                // Quota excedida - não processar nada
-            } elseif (empty($res['data'])) {
-                if (!empty($res['error'])) {
-                    $error = '❌ ' . $res['error'];
-                } else {
-                    $error = '❌ Falha de conectividade ao webservice SAF-T.';
-                }
+            if (empty($create['data']) || empty($create['data']['ok']) || empty($create['data']['session_id'])) {
+                $error = !empty($create['error']) ? $create['error'] : 'Falha ao iniciar sessão de validação no webservice SAF-T.';
+                $debug = json_encode($create, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             } else {
-                $data = $res['data'];
+                $sessionId = (string) $create['data']['session_id'];
+                $page = 1;
+                $debug = json_encode($create, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             }
-            $debug = json_encode($res, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        }
+    }
+
+    if (!$error && $sessionId !== '') {
+        $get = saft_call_sessions_get(
+            $sessionId,
+            $page,
+            $perPage,
+            array(
+                'api_url' => $apiUrlPreview,
+                'api_token' => $apiToken,
+                'verify_tls' => $verifyTls,
+                'timeout' => 30,
+            )
+        );
+
+        if (empty($get['data']) || empty($get['data']['ok'])) {
+            $error = !empty($get['error']) ? $get['error'] : 'Falha ao carregar sessão de validação.';
+        } else {
+            $payload = $get['data'];
+            $totalInvoices = (int) (!empty($payload['total_invoices']) ? $payload['total_invoices'] : 0);
+            $pages = max(1, (int) ceil($totalInvoices / max(1, $perPage)));
+
+            $data = array(
+                'valid' => true,
+                'errors' => array(),
+                'invoice_count' => $totalInvoices,
+                'invoice_views' => !empty($payload['invoices']) && is_array($payload['invoices']) ? $payload['invoices'] : array(),
+                'page' => (int) $page,
+                'per_page' => (int) $perPage,
+                'pages' => $pages,
+            );
+        }
+
+        if (!empty($debug)) {
+            $debug = $debug."\n\n".json_encode($get, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+        } else {
+            $debug = json_encode($get, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
         }
     }
 }
 
-/* ==================================================
-   VIEW (UM ÚNICO llxHeader + CSS do módulo)
-   ================================================== */
 llxHeader("", $langs->trans("SaftArea"), '', '', 0, 0, '', '', '', 'mod-saft');
-
 print load_fiche_titre($langs->trans("SaftArea"), '', 'saft.png@saft');
 
 $csrfToken = newToken();
 
-/* === TOPO (FORM) === */
 print '<div class="fichecenter">';
 print '  <div class="fichehalfleft">';
 
@@ -154,14 +141,14 @@ print '      </div>';
 print '      <form method="POST" enctype="multipart/form-data" id="saft-upload-form">';
 print '        <input type="hidden" name="token" value="'.$csrfToken.'">';
 print '        <input type="hidden" name="action" value="validate">';
-print '        <input type="hidden" name="page" value="1">'; // novo upload volta para a página 1
+print '        <input type="hidden" name="page" value="1">';
 print '        <div style="margin:8px 0;"><label><input type="file" name="file" accept=".xml" required id="saft-file-input"> Seleccionar XML</label></div>';
 print '        <div id="saft-file-error" style="color:red; display:none; margin:8px 0;"></div>';
 print '        <input type="submit" class="button" value="Validar" id="saft-submit-btn">';
 print '      </form>';
 
-if (!empty($tokenXml)) {
-    print '  <div class="opacitymedium">Sessão: '.dol_escape_htmltag($tokenXml).'</div>';
+if (!empty($sessionId)) {
+    print '  <div class="opacitymedium">Sessão API: '.dol_escape_htmltag($sessionId).'</div>';
 }
 
 print '    </div>';
@@ -171,29 +158,21 @@ print '      const fileInput = document.getElementById("saft-file-input");';
 print '      const errorDiv = document.getElementById("saft-file-error");';
 print '      const submitBtn = document.getElementById("saft-submit-btn");';
 print '      const form = document.getElementById("saft-upload-form");';
-print '      ';
 print '      fileInput.addEventListener("change", function() {';
 print '        errorDiv.style.display = "none";';
 print '        errorDiv.textContent = "";';
 print '        submitBtn.disabled = false;';
-print '        ';
-print '        if (this.files && this.files[0]) {';
-print '          const file = this.files[0];';
-print '          if (file.size > MAX_UPLOAD_BYTES) {';
-print '            errorDiv.textContent = "file size limit max 1mb";';
-print '            errorDiv.style.display = "block";';
-print '            submitBtn.disabled = true;';
-print '          }';
+print '        if (this.files && this.files[0] && this.files[0].size > MAX_UPLOAD_BYTES) {';
+print '          errorDiv.textContent = "file size limit max 1mb";';
+print '          errorDiv.style.display = "block";';
+print '          submitBtn.disabled = true;';
 print '        }';
 print '      });';
-print '      ';
 print '      form.addEventListener("submit", function(e) {';
-print '        if (fileInput.files && fileInput.files[0]) {';
-print '          if (fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
-print '            e.preventDefault();';
-print '            errorDiv.textContent = "file size limit max 1mb";';
-print '            errorDiv.style.display = "block";';
-print '          }';
+print '        if (fileInput.files && fileInput.files[0] && fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
+print '          e.preventDefault();';
+print '          errorDiv.textContent = "file size limit max 1mb";';
+print '          errorDiv.style.display = "block";';
 print '        }';
 print '      });';
 print '    </script>';
@@ -202,23 +181,17 @@ if ($error) {
     print '  <div class="error">'.dol_escape_htmltag($error).'</div>';
 }
 
-print '  </div>'; // fichehalfleft
-print '</div>';   // fichecenter
+print '  </div>';
+print '</div>';
 
-
-/* ==================================================
-   RESULTADOS (PAGINAÇÃO + FATURAS)
-   ================================================== */
 if ($data && !empty($data['invoice_views'])) {
-
-    // Paginação (topo)
     if (!empty($data['pages']) && (int) $data['pages'] > 1) {
         print '<div class="pagination" style="margin:10px 0;">';
         for ($i = 1; $i <= (int) $data['pages']; $i++) {
             print '<form method="POST" style="display:inline-block;margin-right:6px;">';
             print '  <input type="hidden" name="token" value="'.$csrfToken.'">';
             print '  <input type="hidden" name="action" value="validate">';
-            print '  <input type="hidden" name="tokenxml" value="'.dol_escape_htmltag($tokenXml).'">';
+            print '  <input type="hidden" name="session_id" value="'.dol_escape_htmltag($sessionId).'">';
             print '  <input type="hidden" name="page" value="'.$i.'">';
             print '  <button '.($i == $page ? 'disabled' : '').'>'.$i.'</button>';
             print '</form>';
@@ -226,30 +199,18 @@ if ($data && !empty($data['invoice_views'])) {
         print '</div>';
     }
 
-    // Faturas (largura total)
-//    original
-    //    print '<div class="fichecenter" style="margin-top:20px";>';
-//    print '  <div class="fichefull">';
-print '<div style="
-    max-width:820px;
-    margin:20px auto;
-">';
-
+    print '<div style="max-width:820px; margin:20px auto;">';
     foreach ($data['invoice_views'] as $iv) {
         include __DIR__.'/tpl/invoice_from_xml.tpl.php';
     }
 
-//    print '  </div>';
- //   print '</div>';
-
-    // Paginação (fundo)
     if (!empty($data['pages']) && (int) $data['pages'] > 1) {
         print '<div class="pagination" style="margin:10px 0;">';
         for ($i = 1; $i <= (int) $data['pages']; $i++) {
             print '<form method="POST" style="display:inline-block;margin-right:6px;">';
             print '  <input type="hidden" name="token" value="'.$csrfToken.'">';
             print '  <input type="hidden" name="action" value="validate">';
-            print '  <input type="hidden" name="tokenxml" value="'.dol_escape_htmltag($tokenXml).'">';
+            print '  <input type="hidden" name="session_id" value="'.dol_escape_htmltag($sessionId).'">';
             print '  <input type="hidden" name="page" value="'.$i.'">';
             print '  <button '.($i == $page ? 'disabled' : '').'>'.$i.'</button>';
             print '</form>';
@@ -257,23 +218,14 @@ print '<div style="
         print '</div>';
     }
 
-// Debug opcional (se quiseres ligar pelo setup)
     if (!empty($clientDebug) && !empty($debug)) {
-        print '<div style="margin-top:10px;">Debug:</div>';
-        print '<br>';
-print '<details>';
-print '<summary style="cursor:pointer;font-weight:bold;">Debug técnico (clique para abrir)</summary>';
-print '<pre style="
-    max-height:260px;
-    overflow:auto;
-    white-space:pre-wrap;
-    word-break:break-all;
-    font-size:11px;
-">'.dol_escape_htmltag($debug).'</pre>';
-print '</details>';
-
+        print '<div style="margin-top:10px;">Debug:</div><br>';
+        print '<details>';
+        print '<summary style="cursor:pointer;font-weight:bold;">Debug técnico (clique para abrir)</summary>';
+        print '<pre style="max-height:260px; overflow:auto; white-space:pre-wrap; word-break:break-all; font-size:11px;">'.dol_escape_htmltag($debug).'</pre>';
+        print '</details>';
     }
- print '  </div>';
+    print '</div>';
 }
 
 llxFooter();

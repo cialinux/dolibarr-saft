@@ -9,34 +9,23 @@ if (!$res) die("Include of main fails");
 
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.form.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
-require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
-require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
-
-require_once __DIR__.'/../class/SaftParser.class.php';
-require_once __DIR__.'/../class/SaftImport.class.php';
 require_once __DIR__.'/../lib/saft.lib.php';
 
-$langs->loadLangs(['main', 'bills', 'companies', 'saft@saft']);
+$langs->loadLangs(array('main', 'bills', 'companies', 'saft@saft'));
 $form = new Form($db);
 
-$action   = GETPOST('action', 'aZ09');
-$tokenxml = GETPOST('tokenxml', 'alpha');
+$action = GETPOST('action', 'aZ09');
+$sessionId = GETPOST('session_id', 'alphanohtml');
 
-$apiRuntime    = saft_get_runtime_api_config();
+$apiRuntime = saft_get_runtime_api_config();
 $apiUrlPreview = $apiRuntime['api_url'];
-$apiToken      = getDolGlobalString('SAFT_API_TOKEN', '');
-$verifyTls     = (bool) $apiRuntime['verify_tls'];
-$perPage       = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
+$apiToken = getDolGlobalString('SAFT_API_TOKEN', '');
+$verifyTls = (bool) $apiRuntime['verify_tls'];
+$perPage = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
+$apiMode = !empty($apiToken) ? 'private' : 'public';
 
-$rateLimit = null;  // Sempre obtido da resposta da API
-$apiMode = 'public';  // 'public' ou 'private'
+$rateLimit = null;
 if (!empty($apiToken)) {
-    $apiMode = 'private';
-}
-
-// Buscar limites imediatamente ao carregar a página
-if (!empty($apiToken)) {
-    // Modo privado: buscar dados do usuário
     $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
     if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
         $userData = $userInfo['data'];
@@ -54,349 +43,193 @@ llxHeader('', 'Importar SAF-T');
 print load_fiche_titre('Importar faturas (SAF-T)');
 
 print '<div class="fichecenter"><div class="card" style="padding:16px;">';
-
-// Mostrar modo e limites
 print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
 print '<strong>Modo:</strong> '.($apiMode === 'private' ? '🔒 Privado' : '🔓 Público');
 print ' | <strong>Ambiente:</strong> '.dol_escape_htmltag($apiRuntime['label']);
 if ($rateLimit !== null && isset($rateLimit['limit'])) {
-    $periodLabel = ($apiMode === 'private') ? 'consultas/mes' : 'consultas/dia';
-    print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' '.$periodLabel;
+    print ' | <strong>Limites:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' consultas/mes';
+    print ' | <strong>Restantes:</strong> '.$rateLimit['remaining'];
 } else {
     print ' | <strong>Limites:</strong> Disponivel durante a importacao';
 }
 print ' | <strong>file size limit:</strong> max 1mb';
-print '</div>';
-print '<br>';
+print '</div><br>';
 
-/* ============================================================
- * FASE 1 – UPLOAD
- * ============================================================ */
 if ($action === 'upload') {
-    if (!empty($_FILES['file']['tmp_name'])) {
-        $fileSize = $_FILES['file']['size'];
-        if ($fileSize > 1 * 1024 * 1024) {
-            setEventMessages('file size limit max 1mb', null, 'errors');
-        } else {
-            $dir = DOL_DATA_ROOT.'/saft/import';
-            dol_mkdir($dir);
-
-            $tokenxml = dol_print_date(dol_now(), '%Y%m%d%H%M%S').'-'.random_int(1000,9999);
-            $dest = $dir.'/saft_import_'.$tokenxml.'.xml';
-
-            if (move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
-                setEventMessages('Ficheiro recebido com sucesso.', null, 'mesgs');
-                $action = 'preview';
-            } else {
-                setEventMessages('Erro ao guardar ficheiro.', null, 'errors');
-            }
-        }
-    }
-}
-
-/* ============================================================
- * FASE 2 – PREVIEW
- * ============================================================ */
-if ($action === 'preview' && $tokenxml) {
-    $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
-    $invoices = SaftParser::loadCustomerInvoices($file);
-    $importerPreview = new SaftImport($db);
-
-    // Mapa de duplicidade no preview: já existente na base e duplicada no próprio XML.
-    $previewDuplicateStatus = array();
-    $seenXmlHashes = array();
-    foreach ($invoices as $k => $invTmp) {
-        $hashTmp = trim((string)($invTmp['hash'] ?? ''));
-        $statusTmp = '';
-
-        if ($hashTmp !== '' && $importerPreview->invoiceExistsByHash($hashTmp)) {
-            $statusTmp = 'duplicada na base';
-        } elseif ($hashTmp !== '' && isset($seenXmlHashes[$hashTmp])) {
-            $statusTmp = 'duplicada no XML';
-        } elseif ($hashTmp !== '') {
-            $seenXmlHashes[$hashTmp] = $k;
-        }
-
-        $previewDuplicateStatus[$k] = $statusTmp;
-    }
-
-    $previewTotal = count($invoices);
-    $previewDupBase = 0;
-    $previewDupXml = 0;
-    foreach ($previewDuplicateStatus as $st) {
-        if ($st === 'duplicada na base') $previewDupBase++;
-        elseif ($st === 'duplicada no XML') $previewDupXml++;
-    }
-    $previewEligible = $previewTotal - $previewDupBase - $previewDupXml;
-
-    print load_fiche_titre('Fase 2: Pré-visualização');
-
-    print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
-    print '<strong>Contadores:</strong> ';
-    print 'Total: '.$previewTotal;
-    print ' | Elegiveis: '.$previewEligible;
-    print ' | Duplicadas na base: '.$previewDupBase;
-    print ' | Duplicadas no XML: '.$previewDupXml;
-    print '</div>';
-
-    print '<form method="POST">';
-    print '<input type="hidden" name="action" value="import">';
-    print '<input type="hidden" name="tokenxml" value="'.$tokenxml.'">';
-    print '<input type="hidden" name="token" value="'.newToken().'">';
-
-    print '<table class="noborder centpercent">';
-    print '<tr class="liste_titre"><th><input type="checkbox" id="saft-select-all"></th><th>Nº</th><th>Data</th><th>Cliente</th><th>Total</th><th>Status</th></tr>';
-
-    foreach ($invoices as $k => $inv) {
-        $dupStatus = !empty($previewDuplicateStatus[$k]) ? $previewDuplicateStatus[$k] : '';
-        $canSelect = ($dupStatus === '');
-
-        print '<tr>';
-        if ($canSelect) {
-            print '<td><input type="checkbox" class="saft-select-item" name="selected[]" value="'.$k.'"></td>';
-        } else {
-            print '<td><input type="checkbox" disabled></td>';
-        }
-        print '<td>'.dol_escape_htmltag($inv['number']).'</td>';
-        print '<td>'.$inv['date'].'</td>';
-        print '<td>'.dol_escape_htmltag($inv['customer_name']).'</td>';
-        print '<td class="right">'.price($inv['total']).'</td>';
-        print '<td>'.($canSelect ? 'ok' : dol_escape_htmltag($dupStatus)).'</td>';
-        print '</tr>';
-    }
-
-    print '</table><br>';
-    print '<input type="submit" class="button button-save" value="Importar">';
-    print '</form>';
-
-    print '<script>';
-    print '  (function() {';
-    print '    const master = document.getElementById("saft-select-all");';
-    print '    const items = Array.prototype.slice.call(document.querySelectorAll(".saft-select-item"));';
-    print '    if (!master || items.length === 0) return;';
-    print '    master.addEventListener("change", function() {';
-    print '      items.forEach(function(cb) { cb.checked = master.checked; });';
-    print '    });';
-    print '    items.forEach(function(cb) {';
-    print '      cb.addEventListener("change", function() {';
-    print '        const allChecked = items.every(function(x) { return x.checked; });';
-    print '        master.checked = allChecked;';
-    print '      });';
-    print '    });';
-    print '  })();';
-    print '</script>';
-}
-
-/* ============================================================
- * FASE 3 – IMPORT (COM RATE LIMITING)
- * ============================================================ */
-if ($action === 'import') {
-    print load_fiche_titre('Fase 3: Resultado da importação');
-
-    $indexes = GETPOST('selected', 'array');
-
-    if (empty($indexes)) {
-        print '<div class="warning">Nenhuma fatura selecionada.</div>';
+    if (empty($_FILES['file']['tmp_name'])) {
+        setEventMessages('Nenhum ficheiro enviado.', null, 'errors');
+    } elseif (!empty($_FILES['file']['size']) && (int) $_FILES['file']['size'] > 1 * 1024 * 1024) {
+        setEventMessages('file size limit max 1mb', null, 'errors');
     } else {
-        $file = DOL_DATA_ROOT.'/saft/import/saft_import_'.$tokenxml.'.xml';
-        $invoices = SaftParser::loadCustomerInvoices($file);
-        $importer = new SaftImport($db);
+        $create = saft_call_sessions_create(
+            $_FILES['file']['tmp_name'],
+            array(
+                'api_url' => $apiUrlPreview,
+                'api_token' => $apiToken,
+                'verify_tls' => $verifyTls,
+                'timeout' => 60,
+                'user_nif' => !empty($apiToken) ? (string) $user->login : '',
+            )
+        );
 
-        // Atualiza limites no modo privado sem consumir quota.
-        if (!empty($apiToken)) {
-            $userInfo = saft_get_authenticated_user($apiUrlPreview, $apiToken, $verifyTls);
-            if (!empty($userInfo['ok']) && !empty($userInfo['data'])) {
-                $userData = $userInfo['data'];
-                $dailyLimit = !empty($userData['daily_limit']) ? (int) $userData['daily_limit'] : 50;
-                $usageToday = !empty($userData['usage_today']) ? (int) $userData['usage_today'] : 0;
-                $rateLimit = array(
-                    'limit' => $dailyLimit,
-                    'used' => $usageToday,
-                    'remaining' => max(0, $dailyLimit - $usageToday),
-                );
-            }
+        if (!empty($create['data']) && !empty($create['data']['ok']) && !empty($create['data']['session_id'])) {
+            $sessionId = (string) $create['data']['session_id'];
+            $action = 'preview';
+            setEventMessages('Sessão de importação iniciada com sucesso.', null, 'mesgs');
+        } else {
+            $msg = !empty($create['error']) ? $create['error'] : 'Falha ao iniciar sessão de importação.';
+            setEventMessages($msg, null, 'errors');
         }
+    }
+}
 
-        $validIndexes = array();
-        $duplicateIndexes = array();
-        $invalidIndexes = array();
-        $seenSelectedHashes = array();
-        foreach ($indexes as $i) {
-            $idx = (int) $i;
-            if (!isset($invoices[$idx])) {
-                $invalidIndexes[] = $idx;
-                continue;
-            }
-
-            $invCheck = $invoices[$idx];
-            $hashCheck = trim((string)($invCheck['hash'] ?? ''));
-
-            if ($hashCheck !== '' && isset($seenSelectedHashes[$hashCheck])) {
-                $duplicateIndexes[] = $idx;
-                continue;
-            }
-
-            if ($hashCheck !== '' && $importer->invoiceExistsByHash($hashCheck)) {
-                $duplicateIndexes[] = $idx;
-                continue;
-            }
-
-            if ($hashCheck !== '') {
-                $seenSelectedHashes[$hashCheck] = $idx;
-            }
-
-            $validIndexes[] = $idx;
-        }
-
-        $selectedTotal = count($indexes);
-        $eligibleTotal = count($validIndexes);
-        $duplicateTotal = count($duplicateIndexes);
-        $invalidTotal = count($invalidIndexes);
-        $consumedQuota = 0;
-        $importedTotal = 0;
-        $skippedTotal = 0;
-        $quotaStopped = false;
-
-        if ($duplicateTotal > 0) {
-            setEventMessages('Pre-checagem: '.$duplicateTotal.' fatura(s) já existem e serão ignoradas antes da importação.', null, 'warnings');
-        }
-
-        if ($invalidTotal > 0) {
-            setEventMessages('Pre-checagem: '.$invalidTotal.' seleção(ões) inválida(s) foram descartadas.', null, 'warnings');
-        }
-
-        if (!empty($rateLimit) && isset($rateLimit['remaining'])) {
-            $saldo = max(0, (int) $rateLimit['remaining']);
-            $possivelImportar = min($eligibleTotal, $saldo);
-            if ($eligibleTotal > $saldo) {
-                setEventMessages('Você selecionou '.$selectedTotal.', mas seu saldo permite importar apenas '.$possivelImportar.'.', null, 'warnings');
-            }
-        }
-
-        setEventMessages('Iniciando importacao de '.$selectedTotal.' fatura(s) selecionada(s).', null, 'mesgs');
-
-        print '<div style="margin:12px 0;">';
-
-        foreach ($validIndexes as $idx) {
-            $inv = $invoices[$idx];
-            $invoiceLabel = !empty($inv['number']) ? $inv['number'] : ('indice '.$idx);
-            $invoiceHash = trim((string)($inv['hash'] ?? ''));
-            $customerAuditMap = array(
-                'nome' => trim((string)($inv['customer_name'] ?? '')),
-                'nif' => trim((string)($inv['customer_taxid'] ?? '')),
-                'vat' => trim((string)($inv['customer_vat'] ?? '')),
-                'endereco' => trim((string)($inv['customer_address'] ?? '')),
-                'cidade' => trim((string)($inv['customer_city'] ?? '')),
-                'codigo_postal' => trim((string)($inv['customer_zip'] ?? '')),
-                'estado_regiao' => trim((string)($inv['customer_state'] ?? '')),
-                'pais' => trim((string)($inv['customer_country'] ?? '')),
-                'telefone' => trim((string)($inv['customer_phone'] ?? '')),
-                'telemovel' => trim((string)($inv['customer_mobile'] ?? '')),
-                'fax' => trim((string)($inv['customer_fax'] ?? '')),
-                'email' => trim((string)($inv['customer_email'] ?? '')),
-                'website' => trim((string)($inv['customer_website'] ?? '')),
-                'contacto' => trim((string)($inv['customer_contact'] ?? '')),
+if ($action === 'import') {
+    if ($sessionId === '') {
+        setEventMessages('Sessão inválida. Reenvie o XML.', null, 'errors');
+    } elseif (empty($apiToken)) {
+        setEventMessages('Registre-se gratuitamente para conseguir importar faturas. API publica nao importa faturas.', null, 'errors');
+    } else {
+        $indexes = GETPOST('selected', 'array');
+        if (empty($indexes) || !is_array($indexes)) {
+            setEventMessages('Nenhuma fatura selecionada.', null, 'warnings');
+        } else {
+            $commit = saft_call_sessions_commit(
+                $sessionId,
+                $indexes,
+                array(
+                    'api_url' => $apiUrlPreview,
+                    'api_token' => $apiToken,
+                    'verify_tls' => $verifyTls,
+                    'timeout' => 120,
+                    'skip_duplicates' => true,
+                    'user_id' => !empty($user->id) ? (int) $user->id : null,
+                )
             );
 
-            // Revalidação defensiva para bloquear duplicados imediatamente.
-            if ($invoiceHash !== '' && $importer->invoiceExistsByHash($invoiceHash)) {
-                $skippedTotal++;
-                print '<div class="warning">Duplicada detectada antes da importacao: '.$invoiceLabel.' (hash '.$invoiceHash.').</div>';
-                continue;
-            }
+            if (!empty($commit['data']) && !empty($commit['data']['ok'])) {
+                $created = !empty($commit['data']['created']) && is_array($commit['data']['created']) ? $commit['data']['created'] : array();
+                $failed = !empty($commit['data']['failed']) && is_array($commit['data']['failed']) ? $commit['data']['failed'] : array();
 
-            // Consome 1 unidade de quota por fatura marcada para importação.
-            $quota = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
-            $rateLimit = !empty($quota['rate_limit']) ? $quota['rate_limit'] : $rateLimit;
-
-            if (empty($quota['ok'])) {
-                $quotaStopped = true;
-                if (empty($apiToken)) {
-                    print '<div class="error">🔒 Registre-se gratuitamente para conseguir importar faturas. API publica nao importa faturas.</div>';
-                } elseif (!empty($quota['auth_error'])) {
-                    print '<div class="error">🔒 '.$quota['auth_error'].'</div>';
-                } elseif (!empty($quota['rate_limit_error'])) {
-                    print '<div class="error">❌ '.$quota['rate_limit_error'].'</div>';
-                } else {
-                    $statusText = !empty($quota['status']) ? ('HTTP '.((int) $quota['status'])) : 'sem codigo HTTP';
-                    $errorText = !empty($quota['error']) ? $quota['error'] : ('Falha ao consumir quota ('.$statusText.').');
-                    print '<div class="error">❌ '.$errorText.'</div>';
-                }
-
-                if (!empty($rateLimit)) {
-                    print '<div class="warning">📊 Usado: '.$rateLimit['used'].'/'.$rateLimit['limit'].' | Restante: '.$rateLimit['remaining'].'</div>';
-                }
-
-                print '<div class="warning">Importacao interrompida ao atingir o limite de quota.</div>';
-                break;
-            }
-
-            $consumedQuota++;
-
-            $db->begin();
-
-            $customerStatus = 'unknown';
-            $socid = $importer->findOrCreateThirdpartyFromSaft($inv, $user, $customerStatus);
-            if ($socid <= 0) {
-                $db->rollback();
-                $skippedTotal++;
-                print '<div class="error">Erro ao obter cliente para a fatura '.$invoiceLabel.'.</div>';
-                continue;
-            }
-
-            $id = $importer->createCustomerInvoiceDraftFromSaft($socid, $inv, $user);
-            if ($id <= 0) {
-                $db->rollback();
-                $skippedTotal++;
-                print '<div class="error">Erro ao importar fatura '.$invoiceLabel.': '.$importer->error.'</div>';
-                continue;
-            }
-
-            $db->commit();
-            $importedTotal++;
-            print '<div class="ok">Fatura '.$invoiceLabel.' criada (ID '.$id.')</div>';
-
-            $auditPairs = array();
-            $auditPairs[] = 'cliente_status='.$customerStatus;
-            foreach ($customerAuditMap as $fieldName => $fieldValue) {
-                if ($fieldValue !== '') {
-                    $auditPairs[] = $fieldName.'='.$fieldValue;
-                }
-            }
-
-            if (!empty($auditPairs)) {
-                print '<div style="margin:2px 0 10px 20px; color:#555;">';
-                print '<strong>Auditoria cliente XML:</strong> '.dol_escape_htmltag(implode(' | ', $auditPairs));
+                print '<div class="ok">Importação concluída com sucesso.</div>';
+                print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
+                print '<strong>Resumo:</strong> ';
+                print 'Clientes criados: '.(int) (!empty($created['customers']) ? $created['customers'] : 0);
+                print ' | Faturas criadas: '.(int) (!empty($created['invoices']) ? $created['invoices'] : 0);
+                print ' | Linhas criadas: '.(int) (!empty($created['lines']) ? $created['lines'] : 0);
+                print ' | Falhas: '.count($failed);
                 print '</div>';
+
+                if (!empty($failed)) {
+                    print '<div class="warning">Algumas faturas não foram importadas:</div>';
+                    print '<ul>';
+                    foreach ($failed as $f) {
+                        $invNo = !empty($f['invoice_no']) ? $f['invoice_no'] : 'UNKNOWN';
+                        $err = !empty($f['error']) ? $f['error'] : 'Erro desconhecido';
+                        print '<li>'.dol_escape_htmltag($invNo).' - '.dol_escape_htmltag($err).'</li>';
+                    }
+                    print '</ul>';
+                }
+
+                saft_call_sessions_delete(
+                    $sessionId,
+                    array(
+                        'api_url' => $apiUrlPreview,
+                        'api_token' => $apiToken,
+                        'verify_tls' => $verifyTls,
+                        'timeout' => 10,
+                    )
+                );
+                $sessionId = '';
+                $action = '';
             } else {
-                print '<div style="margin:2px 0 10px 20px; color:#777;">';
-                print '<strong>Auditoria cliente XML:</strong> nenhum campo de cliente preenchido no XML.';
-                print '</div>';
+                $msg = !empty($commit['error']) ? $commit['error'] : 'Falha ao executar commit da importação.';
+                setEventMessages($msg, null, 'errors');
+                $action = 'preview';
             }
         }
+    }
+}
 
+if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
+    $preview = saft_call_sessions_get(
+        $sessionId,
+        1,
+        1000,
+        array(
+            'api_url' => $apiUrlPreview,
+            'api_token' => $apiToken,
+            'verify_tls' => $verifyTls,
+            'timeout' => 40,
+        )
+    );
+
+    if (empty($preview['data']) || empty($preview['data']['ok'])) {
+        $msg = !empty($preview['error']) ? $preview['error'] : 'Falha ao carregar sessão de importação.';
+        setEventMessages($msg, null, 'errors');
+    } else {
+        $rows = !empty($preview['data']['invoices']) && is_array($preview['data']['invoices']) ? $preview['data']['invoices'] : array();
+        $dedup = !empty($preview['data']['dedup']) && is_array($preview['data']['dedup']) ? $preview['data']['dedup'] : array();
+
+        print load_fiche_titre('Fase 2: Pré-visualização');
+        print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
+        print '<strong>Contadores:</strong> ';
+        print 'Total: '.(int) count($rows);
+        print ' | Elegíveis: '.(int) (!empty($dedup['new']) ? $dedup['new'] : 0);
+        print ' | Duplicadas: '.(int) (!empty($dedup['duplicates']) ? $dedup['duplicates'] : 0);
         print '</div>';
 
-        if (!empty($rateLimit)) {
-            $periodLabel = ($apiMode === 'private') ? 'consultas/mes' : 'consultas/dia';
-            print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
-            print '<strong>📊 Limites apos importacao:</strong> '.$rateLimit['used'].'/'.$rateLimit['limit'].' '.$periodLabel;
-            print ' | <strong>Restantes:</strong> '.$rateLimit['remaining'];
-            print '</div>';
+        print '<form method="POST">';
+        print '<input type="hidden" name="action" value="import">';
+        print '<input type="hidden" name="session_id" value="'.dol_escape_htmltag($sessionId).'">';
+        print '<input type="hidden" name="token" value="'.newToken().'">';
+
+        print '<table class="noborder centpercent">';
+        print '<tr class="liste_titre"><th><input type="checkbox" id="saft-select-all"></th><th>Nº</th><th>Data</th><th>Cliente</th><th>Total</th><th>Status</th></tr>';
+
+        foreach ($rows as $k => $inv) {
+            $invoiceNo = !empty($inv['invoice']['invoice_no']) ? $inv['invoice']['invoice_no'] : 'N/D';
+            $invoiceDate = !empty($inv['invoice']['invoice_date']) ? $inv['invoice']['invoice_date'] : 'N/D';
+            $customerName = !empty($inv['customer']['company_name']) ? $inv['customer']['company_name'] : 'N/D';
+            $totalGross = !empty($inv['totals']['gross']) ? $inv['totals']['gross'] : 0;
+            $isDup = !empty($inv['duplicated']);
+
+            print '<tr>';
+            if (!$isDup) {
+                print '<td><input type="checkbox" class="saft-select-item" name="selected[]" value="'.$k.'"></td>';
+            } else {
+                print '<td><input type="checkbox" disabled></td>';
+            }
+            print '<td>'.dol_escape_htmltag($invoiceNo).'</td>';
+            print '<td>'.dol_escape_htmltag($invoiceDate).'</td>';
+            print '<td>'.dol_escape_htmltag($customerName).'</td>';
+            print '<td class="right">'.price((float) $totalGross).'</td>';
+            print '<td>'.($isDup ? 'duplicada' : 'ok').'</td>';
+            print '</tr>';
         }
 
-        $skippedTotal += $duplicateTotal + $invalidTotal;
-        $summaryMsg = 'Resumo: selecionadas '.$selectedTotal.', elegiveis '.$eligibleTotal.', quota consumida '.$consumedQuota.', importadas '.$importedTotal.', ignoradas '.$skippedTotal.' (duplicadas '.$duplicateTotal.', invalidas '.$invalidTotal.').';
-        if ($quotaStopped) {
-            $summaryMsg .= ' Processo interrompido por limite de quota.';
-        }
-        setEventMessages($summaryMsg, null, $quotaStopped ? 'warnings' : 'mesgs');
-    }  // Fechar else (if empty($indexes))
-}  // Fechar if ($action === 'import')
+        print '</table><br>';
+        print '<input type="submit" class="button button-save" value="Importar">';
+        print '</form>';
 
-/* ============================================================
- * FORM UPLOAD
- * ============================================================ */
+        print '<script>';
+        print '  (function() {';
+        print '    const master = document.getElementById("saft-select-all");';
+        print '    const items = Array.prototype.slice.call(document.querySelectorAll(".saft-select-item"));';
+        print '    if (!master || items.length === 0) return;';
+        print '    master.addEventListener("change", function() {';
+        print '      items.forEach(function(cb) { cb.checked = master.checked; });';
+        print '    });';
+        print '    items.forEach(function(cb) {';
+        print '      cb.addEventListener("change", function() {';
+        print '        const allChecked = items.every(function(x) { return x.checked; });';
+        print '        master.checked = allChecked;';
+        print '      });';
+        print '    });';
+        print '  })();';
+        print '</script>';
+    }
+}
+
 print '<hr>';
 print '<form method="POST" enctype="multipart/form-data" id="saft-import-form">';
 print '<input type="hidden" name="action" value="upload">';
@@ -412,29 +245,21 @@ print '  const fileInput = document.getElementById("saft-import-input");';
 print '  const errorDiv = document.getElementById("saft-import-error");';
 print '  const submitBtn = document.getElementById("saft-import-submit");';
 print '  const form = document.getElementById("saft-import-form");';
-print '  ';
 print '  fileInput.addEventListener("change", function() {';
 print '    errorDiv.style.display = "none";';
 print '    errorDiv.textContent = "";';
 print '    submitBtn.disabled = false;';
-print '    ';
-print '    if (this.files && this.files[0]) {';
-print '      const file = this.files[0];';
-print '      if (file.size > MAX_UPLOAD_BYTES) {';
-print '        errorDiv.textContent = "file size limit max 1mb";';
-print '        errorDiv.style.display = "block";';
-print '        submitBtn.disabled = true;';
-print '      }';
+print '    if (this.files && this.files[0] && this.files[0].size > MAX_UPLOAD_BYTES) {';
+print '      errorDiv.textContent = "file size limit max 1mb";';
+print '      errorDiv.style.display = "block";';
+print '      submitBtn.disabled = true;';
 print '    }';
 print '  });';
-print '  ';
 print '  form.addEventListener("submit", function(e) {';
-print '    if (fileInput.files && fileInput.files[0]) {';
-print '      if (fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
-print '        e.preventDefault();';
-print '        errorDiv.textContent = "file size limit max 1mb";';
-print '        errorDiv.style.display = "block";';
-print '      }';
+print '    if (fileInput.files && fileInput.files[0] && fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
+print '      e.preventDefault();';
+print '      errorDiv.textContent = "file size limit max 1mb";';
+print '      errorDiv.style.display = "block";';
 print '    }';
 print '  });';
 print '</script>';
