@@ -151,38 +151,24 @@ if ($action === 'import') {
 }
 
 if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
-    $getOpts = array(
-        'api_url' => $apiUrlPreview,
-        'api_token' => $apiToken,
-        'verify_tls' => $verifyTls,
-        'timeout' => 40,
+    $preview = saft_call_sessions_get(
+        $sessionId,
+        1,
+        1000,
+        array(
+            'api_url' => $apiUrlPreview,
+            'api_token' => $apiToken,
+            'verify_tls' => $verifyTls,
+            'timeout' => 40,
+        )
     );
-    $preview = saft_call_sessions_get($sessionId, 1, 100, $getOpts);
 
     if (empty($preview['data']) || empty($preview['data']['ok'])) {
         $msg = !empty($preview['error']) ? $preview['error'] : 'Falha ao carregar sessão de importação.';
         setEventMessages($msg, null, 'errors');
     } else {
         $rows = !empty($preview['data']['invoices']) && is_array($preview['data']['invoices']) ? $preview['data']['invoices'] : array();
-        $totalInvoices = !empty($preview['data']['total_invoices']) ? (int) $preview['data']['total_invoices'] : count($rows);
         $dedup = !empty($preview['data']['dedup']) && is_array($preview['data']['dedup']) ? $preview['data']['dedup'] : array();
-
-        // Fetch remaining pages if total > 100
-        $fetchedCount = count($rows);
-        $currentPage = 2;
-        while ($fetchedCount < $totalInvoices) {
-            $nextPage = saft_call_sessions_get($sessionId, $currentPage, 100, $getOpts);
-            if (empty($nextPage['data']) || empty($nextPage['data']['ok'])) {
-                break;
-            }
-            $nextRows = !empty($nextPage['data']['invoices']) && is_array($nextPage['data']['invoices']) ? $nextPage['data']['invoices'] : array();
-            if (empty($nextRows)) {
-                break;
-            }
-            $rows = array_merge($rows, $nextRows);
-            $fetchedCount = count($rows);
-            $currentPage++;
-        }
 
         print load_fiche_titre('Fase 2: Pré-visualização');
         print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
