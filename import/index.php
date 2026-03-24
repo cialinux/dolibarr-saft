@@ -370,6 +370,26 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
             $isDup = !empty($inv['duplicated']);
             $dupReason = !empty($inv['duplicate_reason']) ? (string) $inv['duplicate_reason'] : ($isDup ? 'duplicada' : 'ok');
 
+            // Hash status badge
+            $hashStatus = !empty($inv['hash_status']) ? (string) $inv['hash_status'] : (!empty($inv['hash_valid']) ? 'valid' : 'invalid');
+            $hashBadges = [
+                'valid'                => ['bg' => '#d4edda', 'color' => '#1a7a1a', 'icon' => '✓', 'label' => 'Hash válido'],
+                'hash_missing'         => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Hash em falta'],
+                'atcud_missing'        => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'ATCUD em falta'],
+                'hash_control_invalid' => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'HashControl inválido'],
+                'hash_too_short'       => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'Hash inválido'],
+                'date_invalid'         => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Data inválida'],
+                'invalid'              => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Hash inválido'],
+            ];
+            $hb = isset($hashBadges[$hashStatus]) ? $hashBadges[$hashStatus] : $hashBadges['invalid'];
+            $hashBadgeHtml = '<span style="display:inline-block;padding:2px 8px;background:'.dol_escape_htmltag($hb['bg']).';color:'.dol_escape_htmltag($hb['color']).';border-radius:10px;font-size:11px;font-weight:bold;">'.dol_escape_htmltag($hb['icon']).' '.dol_escape_htmltag($hb['label']).'</span>';
+
+            // Status cell: hash badge + dedup reason if applicable
+            $statusHtml = $hashBadgeHtml;
+            if ($isDup && $dupReason !== 'ok') {
+                $statusHtml .= '<br><span style="font-size:11px;color:#555;">'.dol_escape_htmltag($dupReason).'</span>';
+            }
+
             print '<tr>';
             if (!$isDup) {
                 print '<td><input type="checkbox" class="saft-select-item" name="selected[]" value="'.$k.'"></td>';
@@ -380,7 +400,7 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
             print '<td>'.dol_escape_htmltag($invoiceDate).'</td>';
             print '<td>'.dol_escape_htmltag($customerName).'</td>';
             print '<td class="right">'.price((float) $totalGross).'</td>';
-            print '<td>'.dol_escape_htmltag($dupReason).'</td>';
+            print '<td>'.$statusHtml.'</td>';
             print '</tr>';
         }
 

@@ -206,11 +206,7 @@ if ($data && !empty($data['invoice_views'])) {
 
     print '<div style="max-width:820px; margin:20px auto;">';
     foreach ($data['invoice_views'] as $iv) {
-        if (!empty($iv['duplicate_reason']) && stripos((string) $iv['duplicate_reason'], 'hash inválido/incompatível') !== false) {
-            print '<div class="warning" style="margin:8px 0;">';
-            print 'Fatura '.dol_escape_htmltag(!empty($iv['invoice']['invoice_no']) ? $iv['invoice']['invoice_no'] : 'N/D').': '.dol_escape_htmltag($iv['duplicate_reason']);
-            print '</div>';
-        }
+        // Badge de hash status é renderizado dentro do template (invoice_from_xml.tpl.php)
         include __DIR__.'/tpl/invoice_from_xml.tpl.php';
     }
 

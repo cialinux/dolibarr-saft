@@ -8,7 +8,44 @@
 if (empty($iv) || !is_array($iv)) {
     return;
 }
+
+// Determinar estado do hash para badge visual
+$hashStatus   = isset($iv['hash_status']) ? (string) $iv['hash_status'] : (isset($iv['hash_valid']) && !$iv['hash_valid'] ? 'invalid' : 'valid');
+$hashDupReason = isset($iv['duplicate_reason']) ? (string) $iv['duplicate_reason'] : '';
+$hashIssue    = ($hashStatus !== 'valid');
+
+// Badge config por código
+$hashBadgeMap = [
+    'valid'               => ['color' => '#1a7a1a', 'bg' => '#d4edda', 'border' => '#b8dfc5', 'icon' => '✓', 'label' => 'Hash válido'],
+    'hash_missing'        => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Hash em falta'],
+    'atcud_missing'       => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'ATCUD em falta / inválido'],
+    'hash_control_invalid'=> ['color' => '#856404', 'bg' => '#fff3cd', 'border' => '#ffc107', 'icon' => '⚠', 'label' => 'HashControl inválido'],
+    'hash_too_short'      => ['color' => '#856404', 'bg' => '#fff3cd', 'border' => '#ffc107', 'icon' => '⚠', 'label' => 'Hash inválido'],
+    'date_invalid'        => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Data inválida'],
+    'invalid'             => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Hash inválido/incompatível'],
+];
+$badge = isset($hashBadgeMap[$hashStatus]) ? $hashBadgeMap[$hashStatus] : $hashBadgeMap['invalid'];
 ?>
+<?php if ($hashIssue): ?>
+<div style="
+    background:<?php echo $badge['bg']; ?>;
+    border:1px solid <?php echo $badge['border']; ?>;
+    border-left:5px solid <?php echo $badge['color']; ?>;
+    color:<?php echo $badge['color']; ?>;
+    font-weight:bold;
+    font-size:12px;
+    padding:7px 10px;
+    margin-bottom:6px;
+    border-radius:3px;
+">
+    <?php echo $badge['icon']; ?> AVISO — <?php echo dol_escape_htmltag($badge['label']); ?>
+    <?php if ($hashDupReason !== ''): ?>
+        <span style="font-weight:normal; font-size:11px;">
+            — <?php echo dol_escape_htmltag($hashDupReason); ?>
+        </span>
+    <?php endif; ?>
+</div>
+<?php endif; ?>
 
 <!-- ========================================================= -->
 <!-- FATURA / ATCUD (HEADER AZUL) -->
@@ -187,14 +224,40 @@ style="vertical-align:top; text-align:right;">
 <table style="width:100%; border-collapse:collapse;">
     <tr>
         <td>
-            <b>Hash:</b><br>
+            <b>Hash:</b>
+            <?php if ($hashIssue): ?>
+                <span style="
+                    display:inline-block;
+                    margin-left:8px;
+                    padding:2px 8px;
+                    background:<?php echo $badge['bg']; ?>;
+                    border:1px solid <?php echo $badge['border']; ?>;
+                    color:<?php echo $badge['color']; ?>;
+                    font-size:11px;
+                    font-weight:bold;
+                    border-radius:10px;
+                "><?php echo $badge['icon']; ?> <?php echo dol_escape_htmltag($badge['label']); ?></span>
+            <?php else: ?>
+                <span style="
+                    display:inline-block;
+                    margin-left:8px;
+                    padding:2px 8px;
+                    background:#d4edda;
+                    border:1px solid #b8dfc5;
+                    color:#1a7a1a;
+                    font-size:11px;
+                    font-weight:bold;
+                    border-radius:10px;
+                ">✓ válido</span>
+            <?php endif; ?>
+            <br>
 <div style="
     font-family:monospace;
     font-size:10px;
     color:#444;
-    background:#c0c0c0;
+    background:<?php echo $hashIssue ? '#fff3cd' : '#c0c0c0'; ?>;
+    border:1px solid <?php echo $hashIssue ? '#ffc107' : '#ccc'; ?>;
     padding:6px;
-    border:1px solid #ccc;
     border-radius:3px;
     word-break:break-all;
     overflow-wrap:anywhere;
