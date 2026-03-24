@@ -21,6 +21,7 @@ $hashBadgeMap = [
     'atcud_missing'       => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'ATCUD em falta / inválido'],
     'hash_control_invalid'=> ['color' => '#856404', 'bg' => '#fff3cd', 'border' => '#ffc107', 'icon' => '⚠', 'label' => 'HashControl inválido'],
     'hash_too_short'      => ['color' => '#856404', 'bg' => '#fff3cd', 'border' => '#ffc107', 'icon' => '⚠', 'label' => 'Hash inválido'],
+    'hash_format_invalid' => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Hash inválido'],
     'date_invalid'        => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Data inválida'],
     'invalid'             => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Hash inválido/incompatível'],
 ];

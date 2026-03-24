@@ -378,6 +378,7 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
                 'atcud_missing'        => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'ATCUD em falta'],
                 'hash_control_invalid' => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'HashControl inválido'],
                 'hash_too_short'       => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'Hash inválido'],
+                'hash_format_invalid'  => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Hash inválido'],
                 'date_invalid'         => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Data inválida'],
                 'invalid'              => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Hash inválido'],
             ];
