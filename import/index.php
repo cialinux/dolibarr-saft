@@ -132,6 +132,15 @@ if ($action === 'import') {
 
                     $inv = $rowsImport[$idx];
                     $invoiceNo = !empty($inv['invoice']['invoice_no']) ? (string) $inv['invoice']['invoice_no'] : 'UNKNOWN';
+
+                    if (!empty($inv['duplicated'])) {
+                        $failed[] = array(
+                            'invoice_no' => $invoiceNo,
+                            'error' => !empty($inv['duplicate_reason']) ? (string) $inv['duplicate_reason'] : 'Duplicada ou hash inválido/incompatível.',
+                        );
+                        continue;
+                    }
+
                     $hash = !empty($inv['hash']) ? trim((string) $inv['hash']) : '';
                     if ($hash === '' && !empty($inv['invoice']['hash'])) {
                         $hash = trim((string) $inv['invoice']['hash']);
