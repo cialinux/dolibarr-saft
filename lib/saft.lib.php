@@ -828,6 +828,7 @@ function saft_call_sessions_create($xmlFilePath, $opts = array())
     $verifyTls = !empty($opts['verify_tls']) ? true : false;
     $timeout = !empty($opts['timeout']) ? (int) $opts['timeout'] : 60;
     $userNif = !empty($opts['user_nif']) ? trim((string) $opts['user_nif']) : '';
+    $purpose = !empty($opts['purpose']) ? trim((string) $opts['purpose']) : '';
 
     if (!is_readable($xmlFilePath)) {
         return array('data' => null, 'status' => 0, 'error' => 'XML file not readable: '.$xmlFilePath, 'attempts' => array());
@@ -837,8 +838,15 @@ function saft_call_sessions_create($xmlFilePath, $opts = array())
     if ($url === '') {
         return array('data' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
     }
+    $query = array();
     if ($userNif !== '') {
-        $url = saft_url_with_params($url, array('nif' => $userNif));
+        $query['nif'] = $userNif;
+    }
+    if ($purpose !== '') {
+        $query['purpose'] = $purpose;
+    }
+    if (!empty($query)) {
+        $url = saft_url_with_params($url, $query);
     }
 
     $attempts = array();

@@ -61,6 +61,7 @@ if ($action === 'validate') {
                     'api_token' => $apiToken,
                     'verify_tls' => $verifyTls,
                     'timeout' => 60,
+                    'purpose' => 'validate',
                     'user_nif' => $uploadTokenNif,
                 )
             );

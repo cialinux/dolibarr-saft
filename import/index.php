@@ -64,19 +64,6 @@ if ($action === 'upload') {
     } elseif (!empty($_FILES['file']['size']) && (int) $_FILES['file']['size'] > 1 * 1024 * 1024) {
         setEventMessages('file size limit max 1mb', null, 'errors');
     } else {
-        if (!empty($apiToken)) {
-            $quotaUpload = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
-            if (empty($quotaUpload['ok'])) {
-                $qerr = !empty($quotaUpload['rate_limit_error'])
-                    ? $quotaUpload['rate_limit_error']
-                    : (!empty($quotaUpload['auth_error']) ? $quotaUpload['auth_error'] : 'Falha ao contabilizar quota para iniciar a sessão.');
-                setEventMessages($qerr, null, 'errors');
-            }
-        }
-
-        if (!empty($apiToken) && !empty($quotaUpload) && empty($quotaUpload['ok'])) {
-            // Quota/auth failure already reported above.
-        } else {
         $create = saft_call_sessions_create(
             $_FILES['file']['tmp_name'],
             array(
@@ -84,6 +71,7 @@ if ($action === 'upload') {
                 'api_token' => $apiToken,
                 'verify_tls' => $verifyTls,
                 'timeout' => 60,
+                'purpose' => 'import',
                 'user_nif' => !empty($apiToken) ? (string) $user->login : '',
             )
         );
@@ -95,7 +83,6 @@ if ($action === 'upload') {
         } else {
             $msg = !empty($create['error']) ? $create['error'] : 'Falha ao iniciar sessão de importação.';
             setEventMessages($msg, null, 'errors');
-        }
         }
     }
 }
@@ -134,6 +121,7 @@ if ($action === 'import') {
                 $importer = new SaftImport($db);
                 $created = array('customers' => 0, 'invoices' => 0, 'lines' => 0);
                 $failed = array();
+                $seenXmlKeys = array();
 
                 foreach ($indexes as $idxRaw) {
                     $idx = (int) $idxRaw;
@@ -149,6 +137,14 @@ if ($action === 'import') {
                         $hash = trim((string) $inv['invoice']['hash']);
                     }
 
+                    $customerNif = !empty($inv['customer']['nif']) ? preg_replace('/\s+/', '', (string) $inv['customer']['nif']) : '';
+                    $xmlKey = $hash !== '' ? ('H:'.$hash) : ('N:'.$customerNif.'|I:'.$invoiceNo);
+                    if (isset($seenXmlKeys[$xmlKey])) {
+                        $failed[] = array('invoice_no' => $invoiceNo, 'error' => 'Duplicada no XML (repetida no ficheiro).');
+                        continue;
+                    }
+                    $seenXmlKeys[$xmlKey] = true;
+
                     if ($hash !== '' && $importer->invoiceExistsByHash($hash)) {
                         $failed[] = array('invoice_no' => $invoiceNo, 'error' => 'Duplicada no ERP (hash já importado).');
                         continue;
@@ -163,7 +159,6 @@ if ($action === 'import') {
                         continue;
                     }
 
-                    $customerNif = !empty($inv['customer']['nif']) ? preg_replace('/\s+/', '', (string) $inv['customer']['nif']) : '';
                     $customerCountry = !empty($inv['customer']['country']) ? strtoupper(trim((string) $inv['customer']['country'])) : '';
                     $customerVat = $customerNif;
                     if ($customerCountry !== '' && $customerNif !== '') {
@@ -267,20 +262,19 @@ if ($action === 'import') {
                         print '<li>'.dol_escape_htmltag($invNo).' - '.dol_escape_htmltag($err).'</li>';
                     }
                     print '</ul>';
-                    $action = 'preview';
-                } else {
-                    saft_call_sessions_delete(
-                        $sessionId,
-                        array(
-                            'api_url' => $apiUrlPreview,
-                            'api_token' => $apiToken,
-                            'verify_tls' => $verifyTls,
-                            'timeout' => 10,
-                        )
-                    );
-                    $sessionId = '';
-                    $action = '';
                 }
+
+                saft_call_sessions_delete(
+                    $sessionId,
+                    array(
+                        'api_url' => $apiUrlPreview,
+                        'api_token' => $apiToken,
+                        'verify_tls' => $verifyTls,
+                        'timeout' => 10,
+                    )
+                );
+                $sessionId = '';
+                $action = '';
             }
         }
     }
@@ -305,15 +299,31 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
     } else {
         $rows = !empty($preview['data']['invoices']) && is_array($preview['data']['invoices']) ? $preview['data']['invoices'] : array();
         $importerPreview = new SaftImport($db);
+        $seenXmlPreviewKeys = array();
 
         foreach ($rows as &$row) {
             $hash = !empty($row['hash']) ? trim((string) $row['hash']) : '';
             if ($hash === '' && !empty($row['invoice']['hash'])) {
                 $hash = trim((string) $row['invoice']['hash']);
             }
+
+            $invoiceNo = !empty($row['invoice']['invoice_no']) ? (string) $row['invoice']['invoice_no'] : '';
+            $customerNif = !empty($row['customer']['nif']) ? preg_replace('/\s+/', '', (string) $row['customer']['nif']) : '';
+            $xmlKey = $hash !== '' ? ('H:'.$hash) : ('N:'.$customerNif.'|I:'.$invoiceNo);
+            if (isset($seenXmlPreviewKeys[$xmlKey])) {
+                $row['duplicated'] = true;
+                $row['duplicate_reason'] = 'duplicada no XML (repetida no ficheiro)';
+            } else {
+                $seenXmlPreviewKeys[$xmlKey] = true;
+            }
+
             if ($hash !== '' && $importerPreview->invoiceExistsByHash($hash)) {
                 $row['duplicated'] = true;
-                $row['duplicate_reason'] = 'duplicada no ERP (hash já importado)';
+                if (!empty($row['duplicate_reason'])) {
+                    $row['duplicate_reason'] .= ' + ERP (hash já importado)';
+                } else {
+                    $row['duplicate_reason'] = 'duplicada no ERP (hash já importado)';
+                }
             }
         }
         unset($row);
