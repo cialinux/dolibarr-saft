@@ -121,6 +121,7 @@ if ($action === 'import') {
                 $importer = new SaftImport($db);
                 $created = array('customers' => 0, 'invoices' => 0, 'lines' => 0);
                 $failed = array();
+                $importedSuccess = array();
                 $seenXmlKeys = array();
 
                 foreach ($indexes as $idxRaw) {
@@ -244,6 +245,13 @@ if ($action === 'import') {
                     }
                     $created['invoices']++;
                     $created['lines'] += !empty($legacyInv['lines']) ? count($legacyInv['lines']) : 1;
+                    $importedSuccess[] = array(
+                        'invoice_no' => $invoiceNo,
+                        'customer_name' => !empty($inv['customer']['company_name']) ? (string) $inv['customer']['company_name'] : 'Cliente SAF-T',
+                        'customer_status' => $customerStatus,
+                        'hash_status' => !empty($inv['hash_status']) ? (string) $inv['hash_status'] : 'valid',
+                        'invoice_status' => !empty($inv['invoice_status']) ? (string) $inv['invoice_status'] : 'fatura valida',
+                    );
                 }
 
                 if ($created['invoices'] > 0 && empty($failed)) {
@@ -261,6 +269,21 @@ if ($action === 'import') {
                 print ' | Linhas criadas: '.(int) $created['lines'];
                 print ' | Falhas: '.count($failed);
                 print '</div>';
+
+                if (!empty($importedSuccess)) {
+                    print '<div style="margin:10px 0; padding:10px 12px; background:#d4edda; color:#1b5e20; border:1px solid #b8dfc5; border-radius:4px;">';
+                    print '<strong>Faturas validadas e importadas com sucesso:</strong>';
+                    print '<ul style="margin:8px 0 0 18px;">';
+                    foreach ($importedSuccess as $row) {
+                        $invoiceNo = !empty($row['invoice_no']) ? $row['invoice_no'] : 'UNKNOWN';
+                        $customerName = !empty($row['customer_name']) ? $row['customer_name'] : 'Cliente SAF-T';
+                        $customerStatusText = (!empty($row['customer_status']) && $row['customer_status'] === 'novo') ? 'cliente criado' : 'cliente associado';
+                        $invoiceStatusText = !empty($row['invoice_status']) ? $row['invoice_status'] : 'fatura valida';
+                        print '<li><strong>'.dol_escape_htmltag($invoiceNo).'</strong> — '.dol_escape_htmltag($invoiceStatusText).' e importada com sucesso para '.dol_escape_htmltag($customerName).' ('.dol_escape_htmltag($customerStatusText).').</li>';
+                    }
+                    print '</ul>';
+                    print '</div>';
+                }
 
                 if (!empty($failed)) {
                     print '<div class="warning">Algumas faturas não foram importadas:</div>';
