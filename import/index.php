@@ -10,6 +10,9 @@ if (!$res) die("Include of main fails");
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.form.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/date.lib.php';
 require_once __DIR__.'/../lib/saft.lib.php';
+require_once __DIR__.'/../class/SaftImport.class.php';
+require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
+require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 
 $langs->loadLangs(array('main', 'bills', 'companies', 'saft@saft'));
 $form = new Form($db);
@@ -61,6 +64,19 @@ if ($action === 'upload') {
     } elseif (!empty($_FILES['file']['size']) && (int) $_FILES['file']['size'] > 1 * 1024 * 1024) {
         setEventMessages('file size limit max 1mb', null, 'errors');
     } else {
+        if (!empty($apiToken)) {
+            $quotaUpload = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
+            if (empty($quotaUpload['ok'])) {
+                $qerr = !empty($quotaUpload['rate_limit_error'])
+                    ? $quotaUpload['rate_limit_error']
+                    : (!empty($quotaUpload['auth_error']) ? $quotaUpload['auth_error'] : 'Falha ao contabilizar quota para iniciar a sessão.');
+                setEventMessages($qerr, null, 'errors');
+            }
+        }
+
+        if (!empty($apiToken) && !empty($quotaUpload) && empty($quotaUpload['ok'])) {
+            // Quota/auth failure already reported above.
+        } else {
         $create = saft_call_sessions_create(
             $_FILES['file']['tmp_name'],
             array(
@@ -80,6 +96,7 @@ if ($action === 'upload') {
             $msg = !empty($create['error']) ? $create['error'] : 'Falha ao iniciar sessão de importação.';
             setEventMessages($msg, null, 'errors');
         }
+        }
     }
 }
 
@@ -93,29 +110,151 @@ if ($action === 'import') {
         if (empty($indexes) || !is_array($indexes)) {
             setEventMessages('Nenhuma fatura selecionada.', null, 'warnings');
         } else {
-            $commit = saft_call_sessions_commit(
+            $previewForImport = saft_call_sessions_get(
                 $sessionId,
-                $indexes,
+                1,
+                100,
                 array(
                     'api_url' => $apiUrlPreview,
                     'api_token' => $apiToken,
                     'verify_tls' => $verifyTls,
-                    'timeout' => 120,
-                    'skip_duplicates' => true,
-                    'user_id' => !empty($user->id) ? (int) $user->id : null,
+                    'timeout' => 40,
                 )
             );
 
-            if (!empty($commit['data']) && !empty($commit['data']['ok'])) {
-                $created = !empty($commit['data']['created']) && is_array($commit['data']['created']) ? $commit['data']['created'] : array();
-                $failed = !empty($commit['data']['failed']) && is_array($commit['data']['failed']) ? $commit['data']['failed'] : array();
+            if (empty($previewForImport['data']) || empty($previewForImport['data']['ok'])) {
+                $msg = !empty($previewForImport['error']) ? $previewForImport['error'] : 'Falha ao carregar sessão para importação.';
+                setEventMessages($msg, null, 'errors');
+                $action = 'preview';
+            } else {
+                $rowsImport = !empty($previewForImport['data']['invoices']) && is_array($previewForImport['data']['invoices'])
+                    ? $previewForImport['data']['invoices']
+                    : array();
 
-                print '<div class="ok">Importação concluída com sucesso.</div>';
+                $importer = new SaftImport($db);
+                $created = array('customers' => 0, 'invoices' => 0, 'lines' => 0);
+                $failed = array();
+
+                foreach ($indexes as $idxRaw) {
+                    $idx = (int) $idxRaw;
+                    if (!isset($rowsImport[$idx]) || !is_array($rowsImport[$idx])) {
+                        $failed[] = array('invoice_no' => 'UNKNOWN', 'error' => 'Índice inválido na seleção.');
+                        continue;
+                    }
+
+                    $inv = $rowsImport[$idx];
+                    $invoiceNo = !empty($inv['invoice']['invoice_no']) ? (string) $inv['invoice']['invoice_no'] : 'UNKNOWN';
+                    $hash = !empty($inv['hash']) ? trim((string) $inv['hash']) : '';
+                    if ($hash === '' && !empty($inv['invoice']['hash'])) {
+                        $hash = trim((string) $inv['invoice']['hash']);
+                    }
+
+                    if ($hash !== '' && $importer->invoiceExistsByHash($hash)) {
+                        $failed[] = array('invoice_no' => $invoiceNo, 'error' => 'Duplicada no ERP (hash já importado).');
+                        continue;
+                    }
+
+                    $quotaImport = saft_consume_quota($apiUrlPreview, $apiToken, $verifyTls, 10);
+                    if (empty($quotaImport['ok'])) {
+                        $qerr = !empty($quotaImport['rate_limit_error'])
+                            ? $quotaImport['rate_limit_error']
+                            : (!empty($quotaImport['auth_error']) ? $quotaImport['auth_error'] : 'Falha ao contabilizar quota da importação.');
+                        $failed[] = array('invoice_no' => $invoiceNo, 'error' => $qerr);
+                        continue;
+                    }
+
+                    $customerNif = !empty($inv['customer']['nif']) ? preg_replace('/\s+/', '', (string) $inv['customer']['nif']) : '';
+                    $customerCountry = !empty($inv['customer']['country']) ? strtoupper(trim((string) $inv['customer']['country'])) : '';
+                    $customerVat = $customerNif;
+                    if ($customerCountry !== '' && $customerNif !== '') {
+                        $customerVat = $customerCountry.$customerNif;
+                    }
+
+                    $lines = array();
+                    if (!empty($inv['lines']) && is_array($inv['lines'])) {
+                        foreach ($inv['lines'] as $ln) {
+                            if (!is_array($ln)) {
+                                continue;
+                            }
+                            $qty = isset($ln['qty']) ? (float) $ln['qty'] : 1;
+                            if ($qty <= 0) {
+                                $qty = 1;
+                            }
+                            $lines[] = array(
+                                'desc' => !empty($ln['description']) ? (string) $ln['description'] : (!empty($ln['product_desc']) ? (string) $ln['product_desc'] : 'Linha SAF-T'),
+                                'qty' => $qty,
+                                'unit_price_ht' => isset($ln['unit_price']) ? (float) $ln['unit_price'] : 0,
+                                'vat_rate' => isset($ln['tax_pct']) ? (float) $ln['tax_pct'] : 0,
+                            );
+                        }
+                    }
+
+                    $legacyInv = array(
+                        'number' => $invoiceNo,
+                        'date' => !empty($inv['invoice']['invoice_date']) ? (string) $inv['invoice']['invoice_date'] : '',
+                        'total' => isset($inv['totals']['gross']) ? (float) $inv['totals']['gross'] : 0,
+                        'customer_name' => !empty($inv['customer']['company_name']) ? (string) $inv['customer']['company_name'] : 'Cliente SAF-T',
+                        'customer_taxid' => $customerNif,
+                        'customer_country' => $customerCountry,
+                        'customer_vat' => $customerVat,
+                        'customer_address' => !empty($inv['customer']['addr_detail']) ? (string) $inv['customer']['addr_detail'] : '',
+                        'customer_city' => !empty($inv['customer']['city']) ? (string) $inv['customer']['city'] : '',
+                        'customer_zip' => !empty($inv['customer']['postal']) ? (string) $inv['customer']['postal'] : '',
+                        'customer_state' => '',
+                        'customer_phone' => '',
+                        'customer_mobile' => '',
+                        'customer_fax' => '',
+                        'customer_email' => !empty($inv['customer']['email']) ? (string) $inv['customer']['email'] : '',
+                        'customer_website' => '',
+                        'customer_contact' => !empty($inv['customer']['contact']) ? (string) $inv['customer']['contact'] : '',
+                        'tax_exemption_reason' => '',
+                        'tax_exemption_code' => '',
+                        'hash' => $hash,
+                        'hash_control' => !empty($inv['invoice']['hash_control']) ? (string) $inv['invoice']['hash_control'] : '',
+                        'source_id' => !empty($inv['invoice']['source_id']) ? (string) $inv['invoice']['source_id'] : '',
+                        'system_entry_date' => !empty($inv['invoice']['system_entry_date']) ? (string) $inv['invoice']['system_entry_date'] : '',
+                        'lines' => $lines,
+                    );
+
+                    $customerStatus = 'unknown';
+                    $socid = $importer->findOrCreateThirdpartyFromSaft($legacyInv, $user, $customerStatus);
+                    if ($socid <= 0) {
+                        $failed[] = array(
+                            'invoice_no' => $invoiceNo,
+                            'error' => !empty($importer->error) ? $importer->error : 'Falha ao encontrar/criar cliente.',
+                        );
+                        continue;
+                    }
+
+                    $factureId = $importer->createCustomerInvoiceDraftFromSaft($socid, $legacyInv, $user);
+                    if ($factureId <= 0) {
+                        $failed[] = array(
+                            'invoice_no' => $invoiceNo,
+                            'error' => !empty($importer->error) ? $importer->error : 'Falha ao criar fatura no ERP.',
+                        );
+                        continue;
+                    }
+
+                    if ($customerStatus === 'novo') {
+                        $created['customers']++;
+                    }
+                    $created['invoices']++;
+                    $created['lines'] += !empty($legacyInv['lines']) ? count($legacyInv['lines']) : 1;
+                }
+
+                if ($created['invoices'] > 0 && empty($failed)) {
+                    print '<div class="ok">Importação concluída com sucesso.</div>';
+                } elseif ($created['invoices'] > 0) {
+                    print '<div class="warning">Importação concluída parcialmente.</div>';
+                } else {
+                    print '<div class="error">Nenhuma fatura foi importada.</div>';
+                }
+
                 print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
                 print '<strong>Resumo:</strong> ';
-                print 'Clientes criados: '.(int) (!empty($created['customers']) ? $created['customers'] : 0);
-                print ' | Faturas criadas: '.(int) (!empty($created['invoices']) ? $created['invoices'] : 0);
-                print ' | Linhas criadas: '.(int) (!empty($created['lines']) ? $created['lines'] : 0);
+                print 'Clientes criados: '.(int) $created['customers'];
+                print ' | Faturas criadas: '.(int) $created['invoices'];
+                print ' | Linhas criadas: '.(int) $created['lines'];
                 print ' | Falhas: '.count($failed);
                 print '</div>';
 
@@ -128,23 +267,20 @@ if ($action === 'import') {
                         print '<li>'.dol_escape_htmltag($invNo).' - '.dol_escape_htmltag($err).'</li>';
                     }
                     print '</ul>';
+                    $action = 'preview';
+                } else {
+                    saft_call_sessions_delete(
+                        $sessionId,
+                        array(
+                            'api_url' => $apiUrlPreview,
+                            'api_token' => $apiToken,
+                            'verify_tls' => $verifyTls,
+                            'timeout' => 10,
+                        )
+                    );
+                    $sessionId = '';
+                    $action = '';
                 }
-
-                saft_call_sessions_delete(
-                    $sessionId,
-                    array(
-                        'api_url' => $apiUrlPreview,
-                        'api_token' => $apiToken,
-                        'verify_tls' => $verifyTls,
-                        'timeout' => 10,
-                    )
-                );
-                $sessionId = '';
-                $action = '';
-            } else {
-                $msg = !empty($commit['error']) ? $commit['error'] : 'Falha ao executar commit da importação.';
-                setEventMessages($msg, null, 'errors');
-                $action = 'preview';
             }
         }
     }
@@ -168,14 +304,35 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
         setEventMessages($msg, null, 'errors');
     } else {
         $rows = !empty($preview['data']['invoices']) && is_array($preview['data']['invoices']) ? $preview['data']['invoices'] : array();
-        $dedup = !empty($preview['data']['dedup']) && is_array($preview['data']['dedup']) ? $preview['data']['dedup'] : array();
+        $importerPreview = new SaftImport($db);
+
+        foreach ($rows as &$row) {
+            $hash = !empty($row['hash']) ? trim((string) $row['hash']) : '';
+            if ($hash === '' && !empty($row['invoice']['hash'])) {
+                $hash = trim((string) $row['invoice']['hash']);
+            }
+            if ($hash !== '' && $importerPreview->invoiceExistsByHash($hash)) {
+                $row['duplicated'] = true;
+                $row['duplicate_reason'] = 'duplicada no ERP (hash já importado)';
+            }
+        }
+        unset($row);
+
+        $dedupTotal = count($rows);
+        $dedupDuplicates = 0;
+        foreach ($rows as $it) {
+            if (!empty($it['duplicated'])) {
+                $dedupDuplicates++;
+            }
+        }
+        $dedupNew = max(0, $dedupTotal - $dedupDuplicates);
 
         print load_fiche_titre('Fase 2: Pré-visualização');
         print '<div style="margin:10px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
         print '<strong>Contadores:</strong> ';
-        print 'Total: '.(int) count($rows);
-        print ' | Elegíveis: '.(int) (!empty($dedup['new']) ? $dedup['new'] : 0);
-        print ' | Duplicadas: '.(int) (!empty($dedup['duplicates']) ? $dedup['duplicates'] : 0);
+        print 'Total: '.(int) $dedupTotal;
+        print ' | Elegíveis: '.(int) $dedupNew;
+        print ' | Duplicadas: '.(int) $dedupDuplicates;
         print '</div>';
 
         print '<form method="POST">';
@@ -192,6 +349,7 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
             $customerName = !empty($inv['customer']['company_name']) ? $inv['customer']['company_name'] : 'N/D';
             $totalGross = !empty($inv['totals']['gross']) ? $inv['totals']['gross'] : 0;
             $isDup = !empty($inv['duplicated']);
+            $dupReason = !empty($inv['duplicate_reason']) ? (string) $inv['duplicate_reason'] : ($isDup ? 'duplicada' : 'ok');
 
             print '<tr>';
             if (!$isDup) {
@@ -203,7 +361,7 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
             print '<td>'.dol_escape_htmltag($invoiceDate).'</td>';
             print '<td>'.dol_escape_htmltag($customerName).'</td>';
             print '<td class="right">'.price((float) $totalGross).'</td>';
-            print '<td>'.($isDup ? 'duplicada' : 'ok').'</td>';
+            print '<td>'.dol_escape_htmltag($dupReason).'</td>';
             print '</tr>';
         }
 
