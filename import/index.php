@@ -379,6 +379,10 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
                 'hash_control_invalid' => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'HashControl inválido'],
                 'hash_too_short'       => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'Hash inválido'],
                 'hash_format_invalid'  => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Hash inválido'],
+                'hash_chain_prev_missing' => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'Cadeia hash suspeita'],
+                'hash_chain_order_invalid'=> ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Ordem de série inválida'],
+                'hash_chain_gap_suspect'  => ['bg' => '#fff3cd', 'color' => '#856404', 'icon' => '⚠', 'label' => 'Sequência suspeita'],
+                'hash_chain_duplicate_seq'=> ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Numeração repetida'],
                 'date_invalid'         => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Data inválida'],
                 'invalid'              => ['bg' => '#f8d7da', 'color' => '#721c24', 'icon' => '✗', 'label' => 'Hash inválido'],
             ];
