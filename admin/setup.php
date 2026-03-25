@@ -1,7 +1,7 @@
 <?php
 /* Copyright (C) 2004-2017  Laurent Destailleur     <eldy@users.sourceforge.net>
  * Copyright (C) 2024       Frédéric France         <frederic.france@free.fr>
- * Copyright (C) 2026       Virgilio Filho          <virgilio.filho@cialinux.com>
+ * Copyright (C) 2026       Cia Linux          <general@cialinux.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

@@ -1,4 +1,20 @@
 <?php
+/* Copyright (C) 2026  Cia Linux  <general@cialinux.com>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 $res = 0;
 if (!$res && !empty($_SERVER["CONTEXT_DOCUMENT_ROOT"])) {
     $res = @include $_SERVER["CONTEXT_DOCUMENT_ROOT"]."/main.inc.php";
@@ -331,22 +347,13 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
     } else {
         $rows = !empty($preview['data']['invoices']) && is_array($preview['data']['invoices']) ? $preview['data']['invoices'] : array();
         $importerPreview = new SaftImport($db);
-        $seenXmlPreviewKeys = array();
 
+        // XML-internal duplicate detection is handled by the API (row['duplicated'] flag).
+        // Only ERP dedup (hash already imported into Dolibarr) is checked locally.
         foreach ($rows as &$row) {
             $hash = !empty($row['hash']) ? trim((string) $row['hash']) : '';
             if ($hash === '' && !empty($row['invoice']['hash'])) {
                 $hash = trim((string) $row['invoice']['hash']);
-            }
-
-            $invoiceNo = !empty($row['invoice']['invoice_no']) ? (string) $row['invoice']['invoice_no'] : '';
-            $customerNif = !empty($row['customer']['nif']) ? preg_replace('/\s+/', '', (string) $row['customer']['nif']) : '';
-            $xmlKey = $hash !== '' ? ('H:'.$hash) : ('N:'.$customerNif.'|I:'.$invoiceNo);
-            if (isset($seenXmlPreviewKeys[$xmlKey])) {
-                $row['duplicated'] = true;
-                $row['duplicate_reason'] = 'duplicada no XML (repetida no ficheiro)';
-            } else {
-                $seenXmlPreviewKeys[$xmlKey] = true;
             }
 
             if ($hash !== '' && $importerPreview->invoiceExistsByHash($hash)) {

@@ -2,7 +2,7 @@
 /* Copyright (C) 2004-2018      Laurent Destailleur                     <eldy@users.sourceforge.net>
  * Copyright (C) 2018-2019      Nicolas ZABOURI                         <info@inovea-conseil.com>
  * Copyright (C) 2019-2024      Frédéric France                         <frederic.france@free.fr>
- * Copyright (C) 2026           Virgilio Filho                          <virgilio.filho@cialinux.com>
+ * Copyright (C) 2026           Cia Linux                          <general@cialinux.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by

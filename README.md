@@ -27,6 +27,17 @@ Este módulo foi desenvolvido para **empresas, contabilistas e integradores** qu
 
 ---
 
+## Licenciamento e arquitetura
+
+- O código deste módulo Dolibarr é distribuído sob **GPL v3+** (ver ficheiro `COPYING`), alinhado com os requisitos do ecossistema Dolibarr.
+- A lógica de negócio SAF-T (validação, parsing, deduplicação e análise) é executada no serviço **SAF-T Validator API**.
+- O módulo atua como camada de integração UI/ERP para consumir essa API.
+- A utilização de todos os recursos da plataforma depende de **licenciamento comercial pago da API**.
+
+Em resumo: o módulo é open source (GPL), mas os recursos completos do serviço exigem subscrição/licença ativa da API.
+
+---
+
 ## Funcionalidades do módulo
 
 ### Validação de ficheiros SAF-T
