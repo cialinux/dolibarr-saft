@@ -120,8 +120,8 @@ $item->cssClass = 'minwidth100';
 // Debug do client (log/diagnóstico dentro do Dolibarr)
 $item = $formSetup->newItem('SAFT_CLIENT_DEBUG')->setAsYesNo();
 $item->nameText = 'Client debug (logs)';
-$item->helpText = 'Mostra informações de debug da chamada à API (útil para diagnosticar 404/porta 2000/SSL/rate limits).<br><strong>Recomendado: SIM</strong> durante testes.';
-$item->defaultFieldValue = '1';  // Habilitado por padrão para troubleshooting
+$item->helpText = 'Mostra informações de debug da chamada à API (útil para diagnosticar 404/porta 2000/SSL/rate limits).<br><strong>Nota:</strong> Desativado por padrão. Ativar apenas quando necessário para troubleshooting.';
+$item->defaultFieldValue = '0';  // Desabilitado por padrão por segurança
 
 // Token/API Key para usar a API privada (opcional - se não configurado, usa API pública)
 $item = $formSetup->newItem('SAFT_API_TOKEN');
@@ -383,11 +383,11 @@ if (!empty($apiToken)) {
                 $usageToday = !empty($userData['usage_month']) ? $userData['usage_month'] : (!empty($userData['usage_today']) ? $userData['usage_today'] : 0);
                 
                 print '<table class="noborder centpercent">';
-                print '<tr><td width="30%"><strong>NIF Vinculado:</strong></td><td>'.$nif.'</td></tr>';
+                print '<tr><td width="30%"><strong>NIF Vinculado:</strong></td><td>'.dol_escape_htmltag($nif).'</td></tr>';
                 print '<tr><td><strong>Email:</strong></td><td>'.dol_escape_htmltag($email).'</td></tr>';
-                print '<tr><td><strong>Limite Mensal:</strong></td><td>'.$dailyLimit.' consultas/mes</td></tr>';
-                print '<tr><td><strong>Usado no Mes:</strong></td><td>'.$usageToday.'/'.$dailyLimit.' consultas</td></tr>';
-                print '<tr><td><strong>Restante:</strong></td><td>'.max(0, (int)$dailyLimit - (int)$usageToday).' consultas</td></tr>';
+                print '<tr><td><strong>Limite Mensal:</strong></td><td>'.dol_escape_htmltag((string)$dailyLimit).' consultas/mes</td></tr>';
+                print '<tr><td><strong>Usado no Mes:</strong></td><td>'.dol_escape_htmltag((string)$usageToday).'/'.dol_escape_htmltag((string)$dailyLimit).' consultas</td></tr>';
+                print '<tr><td><strong>Restante:</strong></td><td>'.dol_escape_htmltag((string)max(0, (int)$dailyLimit - (int)$usageToday)).' consultas</td></tr>';
                 print '</table>';
         } else {
                 $errorMsg = !empty($userInfo['error']) ? $userInfo['error'] : 'Erro desconhecido';
