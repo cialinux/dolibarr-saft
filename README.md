@@ -25,6 +25,11 @@ O módulo **SAF-T Portugal para Dolibarr** permite validar e importar automatica
 
 Este módulo foi desenvolvido para **empresas, contabilistas e integradores** que necessitam importar documentos fiscais de forma segura e controlada para dentro do ERP **Dolibarr**.
 
+O **SAF-T Portugal** atualmente é um third-party e está focado nas consulta e extração do xml de faturas e gerados a partir de outro aplicativos.
+
+📚 Fonte oficial:
+https://saft-validator.cialinux.com/
+
 ---
 
 ## Licenciamento e arquitetura
