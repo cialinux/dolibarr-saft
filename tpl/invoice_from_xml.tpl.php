@@ -30,6 +30,35 @@ $hashBadgeMap = [
     'invalid'             => ['color' => '#721c24', 'bg' => '#f8d7da', 'border' => '#f5c6cb', 'icon' => '✗', 'label' => 'Hash inválido/incompatível'],
 ];
 $badge = isset($hashBadgeMap[$hashStatus]) ? $hashBadgeMap[$hashStatus] : $hashBadgeMap['invalid'];
+
+$invoiceStatusLabel = '';
+if (!empty($iv['invoice']['invoice_status_label'])) {
+    $invoiceStatusLabel = (string) $iv['invoice']['invoice_status_label'];
+} elseif (!empty($iv['invoice']['invoice_status_code'])) {
+    $invoiceStatusCode = strtoupper(trim((string) $iv['invoice']['invoice_status_code']));
+    $invoiceStatusMap = [
+        'N' => 'Normal',
+        'A' => 'Anulado',
+        'R' => 'Resumo',
+        'F' => 'Faturado',
+        'S' => 'Autofaturação',
+    ];
+    $invoiceStatusLabel = isset($invoiceStatusMap[$invoiceStatusCode]) ? $invoiceStatusMap[$invoiceStatusCode] : '';
+} elseif (!empty($iv['invoice_status'])) {
+    $invoiceStatusRaw = trim((string) $iv['invoice_status']);
+    $invoiceStatusRawLower = function_exists('mb_strtolower') ? mb_strtolower($invoiceStatusRaw, 'UTF-8') : strtolower($invoiceStatusRaw);
+    if (strpos($invoiceStatusRawLower, 'anulad') !== false) {
+        $invoiceStatusLabel = 'Anulado';
+    } elseif (strpos($invoiceStatusRawLower, 'resumo') !== false) {
+        $invoiceStatusLabel = 'Resumo';
+    } elseif (strpos($invoiceStatusRawLower, 'faturad') !== false) {
+        $invoiceStatusLabel = 'Faturado';
+    } elseif (strpos($invoiceStatusRawLower, 'autofatura') !== false) {
+        $invoiceStatusLabel = 'Autofaturação';
+    } elseif ($invoiceStatusRawLower !== '') {
+        $invoiceStatusLabel = 'Normal';
+    }
+}
 ?>
 <?php if ($hashIssue): ?>
 <div style="
@@ -75,7 +104,8 @@ $badge = isset($hashBadgeMap[$hashStatus]) ? $hashBadgeMap[$hashStatus] : $hashB
             <b>Data:</b> <?php echo dol_escape_htmltag($iv['invoice']['invoice_date'] ?? ''); ?><br>
             <b>Tipo:</b> <?php echo dol_escape_htmltag($iv['invoice']['invoice_type'] ?? ''); ?>
             |
-            <b>Período:</b> <?php echo dol_escape_htmltag($iv['invoice']['period'] ?? ''); ?>
+            <b>Período:</b> <?php echo dol_escape_htmltag($iv['invoice']['period'] ?? ''); ?><br>
+            <b>Estado:</b> <?php echo dol_escape_htmltag($invoiceStatusLabel !== '' ? $invoiceStatusLabel : '—'); ?>
         </td>
         <td
 style="vertical-align:top; text-align:right;">
