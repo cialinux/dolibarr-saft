@@ -69,7 +69,7 @@ function saft_get_environment_config($env = '')
         return array(
             'env' => 'production',
             'label' => 'Ambiente production',
-            'api_url' => 'https://saft-validator.cialinux.com/api/dolibarr/public/validate/preview',
+            'api_url' => 'https://faturas.faturaweb.com/api/dolibarr/public/validate/preview',
             'verify_tls' => true,
         );
     }
@@ -77,7 +77,7 @@ function saft_get_environment_config($env = '')
     return array(
         'env' => 'dev',
         'label' => 'Ambiente dev',
-        'api_url' => 'https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview',
+        'api_url' => 'https://faturas.dev.faturaweb.com/api/dolibarr/public/validate/preview',
         'verify_tls' => false,
     );
 }
@@ -489,7 +489,7 @@ function saft_get_public_quota_status($configuredPreviewUrl, $verifyTls = false,
 /**
  * Busca informações do usuário autenticado via /api/dolibarr/private/me
  * 
- * @param string $configuredUrl URL configurada no setup (ex: https://saft-validator.dev.cialinux.com/api/dolibarr/public/validate/preview)
+ * @param string $configuredUrl URL configurada no setup (ex: https://faturas.dev.faturaweb.com/api/dolibarr/public/validate/preview)
  * @param string $apiToken Token API
  * @param bool $verifyTls Se deve verificar certificado SSL
  * @return array {ok: bool, data?: array, error?: string}
@@ -574,7 +574,7 @@ function saft_get_authenticated_user($configuredUrl, $apiToken, $verifyTls = fal
  * Valida um token API chamando o endpoint do saft-validator
  * 
  * @param string $apiToken Token a validar
- * @param string $baseUrl URL base da API (ex: https://saft-validator.dev.cialinux.com)
+ * @param string $baseUrl URL base da API (ex: https://faturas.dev.faturaweb.com)
  * @param bool $verifyTls Se deve verificar certificado SSL
  * @return array {valid: bool, user_data?: array, error?: string}
  */

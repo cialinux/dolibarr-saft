@@ -28,7 +28,7 @@ Este módulo foi desenvolvido para **empresas, contabilistas e integradores** qu
 O **SAF-T Portugal** atualmente é um third-party e está focado em consultas e importação do xml de faturas que são gerados a partir de outro aplicativos. O SAF-T Portugal, atualmente, não realiza emissão de faturas.
 
 📚 Fonte oficial:
-https://saft-validator.cialinux.com/
+https://faturas.faturaweb.com/
 
 ---
 
