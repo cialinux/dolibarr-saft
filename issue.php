@@ -27,6 +27,8 @@ $apiUrlPreview = $apiRuntime['api_url'];
 $apiToken = getDolGlobalString('SAFT_API_TOKEN', '');
 $verifyTls = (bool) $apiRuntime['verify_tls'];
 $clientDebug = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 0);
+$capabilities = array();
+$capabilityError = '';
 
 function saft_digits9($value)
 {
@@ -85,6 +87,30 @@ function saft_facture_to_issue_payload($fact, $user)
     );
 }
 
+function saft_recent_customer_invoices($db, $limit = 10)
+{
+    global $conf;
+
+    $rows = array();
+    $limit = max(1, min(50, (int) $limit));
+    $sql = "SELECT f.rowid, f.ref, f.datef, f.date_lim_reglement, f.total_ht, f.total_ttc, f.fk_statut, s.nom as customer_name";
+    $sql .= " FROM ".MAIN_DB_PREFIX."facture as f";
+    $sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s ON s.rowid = f.fk_soc";
+    $sql .= " WHERE f.entity IN (".getEntity('facture').")";
+    $sql .= " ORDER BY f.rowid DESC";
+    $sql .= " LIMIT ".$limit;
+
+    $resql = $db->query($sql);
+    if (!$resql) {
+        return $rows;
+    }
+
+    while ($obj = $db->fetch_object($resql)) {
+        $rows[] = $obj;
+    }
+    return $rows;
+}
+
 llxHeader('', 'Emitir fatura SAF-T via API');
 print load_fiche_titre('Emitir fatura fiscal via SAF-T Validator');
 print '<div class="fichecenter"><div class="card" style="padding:16px;">';
@@ -95,6 +121,12 @@ if (empty($apiToken)) {
 } else {
     $cap = saft_call_faturamento_capabilities($apiUrlPreview, $apiToken, $verifyTls, 15);
     $capabilities = !empty($cap['data']['capabilities']) && is_array($cap['data']['capabilities']) ? $cap['data']['capabilities'] : array();
+    if (empty($capabilities)) {
+        $capabilityError = !empty($cap['error']) ? (string) $cap['error'] : 'Endpoint de faturamento via Dolibarr indisponível ou sem resposta válida.';
+        if (!empty($cap['status'])) {
+            $capabilityError .= ' HTTP '.$cap['status'].'.';
+        }
+    }
     print '<div style="margin:12px 0; padding:8px; background:#f0f0f0; border-radius:4px;">';
     print '<strong>Ambiente:</strong> '.dol_escape_htmltag($apiRuntime['label']);
     print ' | <strong>Faturamento:</strong> '.(!empty($capabilities['can_issue_invoices']) ? 'autorizado' : 'não autorizado');
@@ -108,9 +140,12 @@ if (empty($apiToken)) {
         foreach ($capabilities['messages'] as $message) print '<li>'.dol_escape_htmltag($message).'</li>';
         print '</ul></div>';
     }
+    if ($capabilityError !== '') {
+        print '<div class="warning">'.dol_escape_htmltag($capabilityError).'</div>';
+    }
 }
 
-if ($action === 'issue' && !empty($apiToken)) {
+if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_invoices'])) {
     $fact = new Facture($db);
     if ($factureId <= 0 || $fact->fetch($factureId) <= 0) {
         setEventMessages('Fatura Dolibarr não encontrada.', null, 'errors');
@@ -149,6 +184,8 @@ if ($action === 'issue' && !empty($apiToken)) {
             }
         }
     }
+} elseif ($action === 'issue' && empty($capabilities['can_issue_invoices'])) {
+    setEventMessages('Emissão bloqueada: o SAF-T Validator ainda não autorizou este token para emissão fiscal via Dolibarr.', null, 'errors');
 }
 
 print '<form method="POST" style="margin-top:16px;">';
@@ -156,9 +193,31 @@ print '<input type="hidden" name="token" value="'.newToken().'">';
 print '<input type="hidden" name="action" value="issue">';
 print '<label for="facture_id">ID da fatura Dolibarr</label><br>';
 print '<input type="number" min="1" name="facture_id" id="facture_id" value="'.((int) $factureId).'" required style="max-width:160px;"> ';
-print '<input type="submit" class="button button-save" value="Emitir no SAF-T Validator">';
+print '<input type="submit" class="button button-save" value="Emitir no SAF-T Validator"'.(empty($capabilities['can_issue_invoices']) ? ' disabled' : '').'>';
 print '</form>';
 print '<p class="opacitymedium" style="margin-top:12px;">Repetir a chamada para a mesma fatura devolve a mesma fatura oficial por idempotência.</p>';
+
+$recentInvoices = saft_recent_customer_invoices($db, 12);
+if (!empty($recentInvoices)) {
+    print '<br><table class="noborder centpercent">';
+    print '<tr class="liste_titre"><td>ID</td><td>Ref.</td><td>Cliente</td><td class="center">Data</td><td class="right">Total</td><td class="center">Estado</td><td></td></tr>';
+    foreach ($recentInvoices as $row) {
+        $statusLabel = ((int) $row->fk_statut === 0) ? 'Rascunho' : (((int) $row->fk_statut === 1) ? 'Pendente' : 'Fechada');
+        $issueUrl = dol_buildpath('/custom/saft/issue.php?mainmenu=saft&leftmenu=saft_issue&facture_id='.(int) $row->rowid, 1);
+        $cardUrl = DOL_URL_ROOT.'/compta/facture/card.php?id='.(int) $row->rowid;
+        print '<tr class="oddeven">';
+        print '<td>'.(int) $row->rowid.'</td>';
+        print '<td><a href="'.$cardUrl.'">'.dol_escape_htmltag($row->ref).'</a></td>';
+        print '<td>'.dol_escape_htmltag($row->customer_name).'</td>';
+        print '<td class="center">'.dol_print_date($db->jdate($row->datef), 'day').'</td>';
+        print '<td class="right">'.price($row->total_ttc).'</td>';
+        print '<td class="center">'.dol_escape_htmltag($statusLabel).'</td>';
+        print '<td class="right"><a class="button button-small" href="'.$issueUrl.'">Selecionar</a></td>';
+        print '</tr>';
+    }
+    print '</table>';
+}
+
 print '</div></div>';
 
 llxFooter();

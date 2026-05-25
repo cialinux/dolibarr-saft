@@ -158,6 +158,11 @@ if ($rateLimit) {
 }
 print '        | <strong>file size limit:</strong> max 1mb';
 print '      </div>';
+if (!empty($apiToken)) {
+    print '      <div style="margin:12px 0;">';
+    print '        <a class="button" href="'.dol_buildpath('/custom/saft/issue.php?mainmenu=saft&leftmenu=saft_issue', 1).'">Emitir fatura via API</a>';
+    print '      </div>';
+}
 
 print '      <form method="POST" enctype="multipart/form-data" id="saft-upload-form">';
 print '        <input type="hidden" name="token" value="'.$csrfToken.'">';

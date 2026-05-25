@@ -156,7 +156,7 @@ class modSaft extends DolibarrModules
             'url'        => '/custom/saft/issue.php',
             'langs'      => 'saft@saft',
             'position'   => 1120,
-            'enabled'    => 'isModEnabled("saft") && getDolGlobalString("SAFT_API_TOKEN")',
+            'enabled'    => 'isModEnabled("saft")',
             'perms'      => '1',
             'target'     => '',
             'user'       => 2
