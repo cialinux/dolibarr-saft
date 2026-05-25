@@ -146,6 +146,21 @@ class modSaft extends DolibarrModules
             'target'     => '',
             'user'       => 2
         );
+
+        $this->menu[$r++] = array(
+            'fk_menu'    => 'fk_mainmenu=saft',
+            'type'       => 'left',
+            'titre'      => 'Emitir fatura (API)',
+            'mainmenu'   => 'saft',
+            'leftmenu'   => 'saft_issue',
+            'url'        => '/custom/saft/issue.php',
+            'langs'      => 'saft@saft',
+            'position'   => 1120,
+            'enabled'    => 'isModEnabled("saft") && getDolGlobalString("SAFT_API_TOKEN")',
+            'perms'      => '1',
+            'target'     => '',
+            'user'       => 2
+        );
     }
 
     public function init($options = '')

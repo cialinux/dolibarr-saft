@@ -1018,3 +1018,138 @@ function saft_call_sessions_delete($sessionId, $opts = array())
 
     return array('data' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao webservice SAF-T.', 'attempts' => $attempts);
 }
+
+function saft_call_json_endpoint($configuredPreviewUrl, $endpointPath, $method = 'GET', $payload = null, $opts = array())
+{
+    $apiToken = !empty($opts['api_token']) ? (string) $opts['api_token'] : '';
+    $verifyTls = !empty($opts['verify_tls']) ? true : false;
+    $timeout = !empty($opts['timeout']) ? (int) $opts['timeout'] : 30;
+    $url = saft_build_endpoint_url($configuredPreviewUrl, $endpointPath);
+    if ($url === '') {
+        return array('data' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+
+    $attempts = array();
+    $lastStatus = 0;
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $headers = array('Accept: application/json');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        $ch = curl_init();
+        $options = array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        );
+
+        $method = strtoupper((string) $method);
+        if ($method === 'POST') {
+            $headers[] = 'Content-Type: application/json';
+            $options[CURLOPT_HTTPHEADER] = $headers;
+            $options[CURLOPT_POST] = true;
+            $options[CURLOPT_POSTFIELDS] = json_encode($payload ?: array());
+        } elseif ($method !== 'GET') {
+            $options[CURLOPT_CUSTOMREQUEST] = $method;
+            if ($payload !== null) {
+                $headers[] = 'Content-Type: application/json';
+                $options[CURLOPT_HTTPHEADER] = $headers;
+                $options[CURLOPT_POSTFIELDS] = json_encode($payload);
+            }
+        }
+
+        curl_setopt_array($ch, $options);
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = '';
+        $body = '';
+        if (is_string($resp)) {
+            $headersRaw = substr($resp, 0, $hdrSize);
+            $body = substr($resp, $hdrSize);
+        }
+
+        $decoded = is_string($body) ? json_decode($body, true) : null;
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+
+        if (is_array($decoded)) {
+            $error = null;
+            if ($status < 200 || $status >= 300) {
+                $error = !empty($decoded['error']) ? (string) $decoded['error'] : 'Resposta de erro da API SAF-T.';
+            }
+            return array('data' => $decoded, 'status' => $status, 'error' => $error, 'attempts' => $attempts);
+        }
+    }
+
+    return array('data' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao webservice SAF-T.', 'attempts' => $attempts);
+}
+
+function saft_call_faturamento_capabilities($configuredPreviewUrl, $apiToken, $verifyTls = false, $timeout = 15)
+{
+    return saft_call_json_endpoint(
+        $configuredPreviewUrl,
+        '/api/dolibarr/private/faturamento/capabilities',
+        'GET',
+        null,
+        array('api_token' => $apiToken, 'verify_tls' => $verifyTls, 'timeout' => $timeout)
+    );
+}
+
+function saft_call_faturamento_issue_invoice($configuredPreviewUrl, $apiToken, $verifyTls, $payload, $timeout = 60)
+{
+    return saft_call_json_endpoint(
+        $configuredPreviewUrl,
+        '/api/dolibarr/private/faturamento/invoices',
+        'POST',
+        $payload,
+        array('api_token' => $apiToken, 'verify_tls' => $verifyTls, 'timeout' => $timeout)
+    );
+}
+
+function saft_call_faturamento_saft_exports($configuredPreviewUrl, $apiToken, $verifyTls = false, $timeout = 30)
+{
+    return saft_call_json_endpoint(
+        $configuredPreviewUrl,
+        '/api/dolibarr/private/faturamento/saft/exports',
+        'GET',
+        null,
+        array('api_token' => $apiToken, 'verify_tls' => $verifyTls, 'timeout' => $timeout)
+    );
+}
+
+function saft_call_faturamento_saft_export_monthly($configuredPreviewUrl, $apiToken, $verifyTls, $year, $month, $timeout = 90)
+{
+    return saft_call_json_endpoint(
+        $configuredPreviewUrl,
+        '/api/dolibarr/private/faturamento/saft/exports/monthly',
+        'POST',
+        array('year' => (int) $year, 'month' => (int) $month),
+        array('api_token' => $apiToken, 'verify_tls' => $verifyTls, 'timeout' => $timeout)
+    );
+}
