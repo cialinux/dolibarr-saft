@@ -1153,3 +1153,72 @@ function saft_call_faturamento_saft_export_monthly($configuredPreviewUrl, $apiTo
         array('api_token' => $apiToken, 'verify_tls' => $verifyTls, 'timeout' => $timeout)
     );
 }
+
+function saft_call_faturamento_invoice_pdf($configuredPreviewUrl, $apiToken, $verifyTls, $invoiceId, $timeout = 60)
+{
+    $url = saft_build_endpoint_url(
+        $configuredPreviewUrl,
+        '/api/dolibarr/private/faturamento/invoices/'.((int) $invoiceId).'/pdf'
+    );
+    if ($url === '') {
+        return array('pdf_bytes' => null, 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+
+    $attempts = array();
+    $lastStatus = 0;
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $headers = array('Accept: application/pdf');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $body = '';
+        if (is_string($resp)) {
+            $body = substr($resp, $hdrSize);
+        }
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'body_head_400' => substr((string) $body, 0, 400),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+        if ($status >= 200 && $status < 300 && stripos($ct, 'application/pdf') !== false && $body !== '') {
+            return array('pdf_bytes' => $body, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+        if ($status >= 400) {
+            $decoded = json_decode($body, true);
+            $error = is_array($decoded) && !empty($decoded['error']) ? (string) $decoded['error'] : 'Falha ao obter PDF oficial no SAF-T Validator.';
+            return array('pdf_bytes' => null, 'status' => $status, 'error' => $error, 'attempts' => $attempts);
+        }
+    }
+
+    return array('pdf_bytes' => null, 'status' => $lastStatus, 'error' => 'Falha de conectividade ao obter PDF oficial.', 'attempts' => $attempts);
+}

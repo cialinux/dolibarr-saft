@@ -16,6 +16,7 @@ if (!$res && file_exists("../../main.inc.php")) $res = @include "../../main.inc.
 if (!$res) die("Include of main fails");
 
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
+require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 require_once __DIR__.'/lib/saft.lib.php';
 
 $langs->loadLangs(array('main', 'bills', 'companies', 'saft@saft'));
@@ -88,10 +89,10 @@ function saft_facture_to_issue_payload($fact, $user, $taxReasonCode = '')
             'issue_date' => $issueDate,
             'due_date' => $dueDate,
             'purchase_order_number' => !empty($fact->ref_client) ? (string) $fact->ref_client : '',
-            'invoice_notes' => 'Pedido de emissão originado no Dolibarr por '.$user->login,
+            'invoice_notes' => 'Pedido de emissão originado no Dolibarr por '.((int) $user->id),
             'customer_nif' => $customerNif,
             'customer_name' => !empty($thirdparty->name) ? (string) $thirdparty->name : 'Cliente Dolibarr',
-            'customer_email' => !empty($thirdparty->email) ? (string) $thirdparty->email : '',
+            'customer_email' => !empty($thirdparty->email) ? (string) $thirdparty->email : null,
             'customer_address' => !empty($thirdparty->address) ? (string) $thirdparty->address : 'N/D',
             'customer_postal_code' => !empty($thirdparty->zip) ? (string) $thirdparty->zip : '0000-000',
             'customer_city' => !empty($thirdparty->town) ? (string) $thirdparty->town : 'N/D',
@@ -109,6 +110,37 @@ function saft_payload_has_zero_vat_lines($payload)
         }
     }
     return false;
+}
+
+function saft_store_official_invoice_pdf($fact, $invoice, $apiUrlPreview, $apiToken, $verifyTls)
+{
+    $invoiceId = (int) (!empty($invoice['id']) ? $invoice['id'] : 0);
+    if ($invoiceId <= 0) {
+        return array('ok' => false, 'error' => 'ID da fatura oficial indisponível.');
+    }
+
+    $pdf = saft_call_faturamento_invoice_pdf($apiUrlPreview, $apiToken, $verifyTls, $invoiceId, 60);
+    if (empty($pdf['pdf_bytes'])) {
+        return array('ok' => false, 'error' => !empty($pdf['error']) ? $pdf['error'] : 'Falha ao obter PDF oficial.');
+    }
+
+    $ref = dol_sanitizeFileName((string) $fact->ref);
+    if ($ref === '') {
+        $ref = 'facture_'.$fact->id;
+    }
+    $dir = DOL_DATA_ROOT.'/facture/'.$ref;
+    if (dol_mkdir($dir) < 0) {
+        return array('ok' => false, 'error' => 'Falha ao criar diretório de documentos da fatura.');
+    }
+
+    $officialNumber = dol_sanitizeFileName((string) (!empty($invoice['invoice_number']) ? $invoice['invoice_number'] : ('saft_'.$invoiceId)));
+    $filePath = $dir.'/'.$officialNumber.'_SAFT-Validator.pdf';
+    $written = @file_put_contents($filePath, $pdf['pdf_bytes']);
+    if ($written === false || $written <= 0) {
+        return array('ok' => false, 'error' => 'Falha ao guardar PDF oficial nos documentos da fatura.');
+    }
+
+    return array('ok' => true, 'path' => $filePath);
 }
 
 function saft_recent_customer_invoices($db, $limit = 10)
@@ -198,6 +230,7 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
                 }
             } else {
                 $invoice = $issue['data']['invoice'];
+                $pdfStore = saft_store_official_invoice_pdf($fact, $invoice, $apiUrlPreview, $apiToken, $verifyTls);
                 $note = trim((string) $fact->note_private);
                 if ($note !== '') $note .= "\n\n";
                 $note .= "SAF-T Validator emission\n";
@@ -206,9 +239,15 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
                 $note .= "Series: ".(string) $invoice['invoice_series']."\n";
                 $note .= "Hash: ".(string) $invoice['integrity_hash']."\n";
                 $note .= "Idempotency-Key: ".$payload['external']['idempotency_key']."\n";
+                if (!empty($pdfStore['ok']) && !empty($pdfStore['path'])) {
+                    $note .= "Official PDF: ".basename($pdfStore['path'])."\n";
+                }
                 $sql = "UPDATE ".MAIN_DB_PREFIX."facture SET note_private = '".$db->escape($note)."' WHERE rowid = ".((int) $fact->id);
                 $db->query($sql);
                 setEventMessages((!empty($issue['data']['idempotent']) ? 'Fatura já emitida anteriormente: ' : 'Fatura emitida com sucesso: ').$invoice['invoice_number'], null, 'mesgs');
+                if (empty($pdfStore['ok'])) {
+                    setEventMessages('A fatura foi emitida, mas o PDF oficial não foi guardado no Dolibarr: '.(!empty($pdfStore['error']) ? $pdfStore['error'] : 'erro desconhecido'), null, 'warnings');
+                }
             }
         }
     }
