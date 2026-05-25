@@ -136,6 +136,23 @@ $item->cssClass = 'minwidth500';
 // End of definition of parameters
 $setupnotempty += count($formSetup->items);
 
+function saft_setup_access_badge($allowed, $labelAllowed = 'Autorizado', $labelDenied = 'Não autorizado')
+{
+        if ($allowed) {
+                return '<span class="badge badge-status4">'.$labelAllowed.'</span>';
+        }
+        return '<span class="badge badge-status8">'.$labelDenied.'</span>';
+}
+
+function saft_setup_access_row($moduleName, $allowed, $detail)
+{
+        print '<tr>';
+        print '<td width="30%"><strong>'.dol_escape_htmltag($moduleName).'</strong></td>';
+        print '<td width="18%">'.saft_setup_access_badge($allowed).'</td>';
+        print '<td>'.dol_escape_htmltag($detail).'</td>';
+        print '</tr>';
+}
+
 
 /*
  * ==========================================================
@@ -381,13 +398,52 @@ if (!empty($apiToken)) {
                 $email = !empty($userData['email']) ? $userData['email'] : 'N/A';
                 $dailyLimit = !empty($userData['daily_limit']) ? $userData['daily_limit'] : 'N/A';
                 $usageToday = !empty($userData['usage_month']) ? $userData['usage_month'] : (!empty($userData['usage_today']) ? $userData['usage_today'] : 0);
+                $remaining = max(0, (int)$dailyLimit - (int)$usageToday);
                 
                 print '<table class="noborder centpercent">';
                 print '<tr><td width="30%"><strong>NIF Vinculado:</strong></td><td>'.dol_escape_htmltag($nif).'</td></tr>';
                 print '<tr><td><strong>Email:</strong></td><td>'.dol_escape_htmltag($email).'</td></tr>';
                 print '<tr><td><strong>Limite Mensal:</strong></td><td>'.dol_escape_htmltag((string)$dailyLimit).' consultas/mes</td></tr>';
                 print '<tr><td><strong>Usado no Mes:</strong></td><td>'.dol_escape_htmltag((string)$usageToday).'/'.dol_escape_htmltag((string)$dailyLimit).' consultas</td></tr>';
-                print '<tr><td><strong>Restante:</strong></td><td>'.dol_escape_htmltag((string)max(0, (int)$dailyLimit - (int)$usageToday)).' consultas</td></tr>';
+                print '<tr><td><strong>Restante:</strong></td><td>'.dol_escape_htmltag((string)$remaining).' consultas</td></tr>';
+                print '</table>';
+
+                $capResult = saft_call_faturamento_capabilities($apiUrl, $apiToken, $verifyTls, 15);
+                $capabilities = !empty($capResult['data']['capabilities']) && is_array($capResult['data']['capabilities']) ? $capResult['data']['capabilities'] : array();
+                $capabilityError = '';
+                if (empty($capabilities)) {
+                        $capabilityError = !empty($capResult['error']) ? (string) $capResult['error'] : 'Endpoint de capacidades indisponível.';
+                        if (!empty($capResult['status'])) {
+                                $capabilityError .= ' HTTP '.$capResult['status'].'.';
+                        }
+                }
+
+                print '<br><table class="noborder centpercent">';
+                print '<tr class="liste_titre"><td>Módulo</td><td>Estado</td><td>Detalhe</td></tr>';
+                saft_setup_access_row(
+                        'SAF-T Validator',
+                        true,
+                        'Token privado válido. Pode consultar/validar XML conforme limites do backend.'
+                );
+                saft_setup_access_row(
+                        'Importação de faturas',
+                        $remaining > 0,
+                        $remaining > 0 ? 'Token válido com créditos disponíveis para importação.' : 'Token válido, mas sem créditos/requests disponíveis.'
+                );
+                if (!empty($capabilities)) {
+                        $messages = !empty($capabilities['messages']) && is_array($capabilities['messages']) ? implode(' ', $capabilities['messages']) : '';
+                        saft_setup_access_row(
+                                'Emissão de faturas',
+                                !empty($capabilities['can_issue_invoices']),
+                                !empty($capabilities['can_issue_invoices']) ? 'Token autorizado para emissão fiscal via Dolibarr.' : ($messages !== '' ? $messages : 'Token ainda não autorizado para emissão fiscal via Dolibarr.')
+                        );
+                } else {
+                        saft_setup_access_row(
+                                'Emissão de faturas',
+                                false,
+                                $capabilityError
+                        );
+                }
                 print '</table>';
         } else {
                 $errorMsg = !empty($userInfo['error']) ? $userInfo['error'] : 'Erro desconhecido';
