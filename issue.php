@@ -229,7 +229,6 @@ function saft_recent_customer_invoices($db, $limit = 10)
 llxHeader('', 'Emitir fatura SAF-T via API');
 print load_fiche_titre('Emitir fatura fiscal via SAF-T Validator');
 print '<div class="fichecenter"><div class="card" style="padding:16px;">';
-print '<p class="opacitymedium">O Dolibarr envia o pedido. Numeração, hash, ATCUD, PDF e SAF-T são controlados pelo SAF-T Validator.</p>';
 
 if (empty($apiToken)) {
     print '<div class="warning">Configure um SAFT API Token válido no setup do módulo.</div>';

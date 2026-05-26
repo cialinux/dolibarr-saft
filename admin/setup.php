@@ -330,6 +330,13 @@ if (empty($setupnotempty)) {
         print '<br>'.$langs->trans("NothingToSetup");
 }
 
+print '<div class="info" style="margin: 0 0 16px 0;">';
+print '<strong>Integração fiscal FaturaWeb</strong><br>';
+print 'O Dolibarr envia o pedido. Numeração, hash, ATCUD, PDF e SAF-T são controlados pelo SAF-T Validator.<br>';
+print 'Toda e qualquer configuração adicional deve ser feita no site faturaweb.com.<br>';
+print 'Dados de emitente, ATCUD, séries e logo são controlados pelo portal faturaweb.com.';
+print '</div>';
+
 $envConfig = saft_get_runtime_api_config();
 
 print '<div class="div-table-responsive-no-min" style="margin: 0 0 16px 0;">';
