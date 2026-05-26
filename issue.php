@@ -82,6 +82,16 @@ function saft_facture_line_id($line, $fallback)
     return (int) $fallback;
 }
 
+function saft_invoice_idempotency_key($invoiceId)
+{
+    return 'dolibarr:entity:'.$GLOBALS['conf']->entity.':facture:'.((int) $invoiceId);
+}
+
+function saft_invoice_is_emitted_from_note($invoiceId, $note)
+{
+    return strpos((string) $note, 'Idempotency-Key: '.saft_invoice_idempotency_key($invoiceId)) !== false;
+}
+
 function saft_facture_to_issue_payload($fact, $user, $taxReasonCodes = array())
 {
     $thirdparty = $fact->thirdparty;
@@ -117,7 +127,7 @@ function saft_facture_to_issue_payload($fact, $user, $taxReasonCodes = array())
             'source' => 'dolibarr',
             'document_id' => (string) $fact->id,
             'document_ref' => (string) $fact->ref,
-            'idempotency_key' => 'dolibarr:entity:'.$GLOBALS['conf']->entity.':facture:'.$fact->id,
+            'idempotency_key' => saft_invoice_idempotency_key($fact->id),
         ),
         'invoice' => array(
             'invoice_type' => $invoiceType,
@@ -198,7 +208,7 @@ function saft_recent_customer_invoices($db, $limit = 10)
 
     $rows = array();
     $limit = max(1, min(50, (int) $limit));
-    $sql = "SELECT f.rowid, f.ref, f.datef, f.date_lim_reglement, f.total_ht, f.total_ttc, f.fk_statut, s.nom as customer_name";
+    $sql = "SELECT f.rowid, f.ref, f.datef, f.date_lim_reglement, f.total_ht, f.total_ttc, f.fk_statut, f.note_private, s.nom as customer_name";
     $sql .= " FROM ".MAIN_DB_PREFIX."facture as f";
     $sql .= " LEFT JOIN ".MAIN_DB_PREFIX."societe as s ON s.rowid = f.fk_soc";
     $sql .= " WHERE f.entity IN (".getEntity('facture').")";
@@ -283,18 +293,21 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
                 $invoice = $issue['data']['invoice'];
                 $pdfStore = saft_store_official_invoice_pdf($fact, $invoice, $apiUrlPreview, $apiToken, $verifyTls);
                 $note = trim((string) $fact->note_private);
-                if ($note !== '') $note .= "\n\n";
-                $note .= "SAF-T Validator emission\n";
-                $note .= "External invoice ID: ".(int) $invoice['id']."\n";
-                $note .= "Invoice number: ".(string) $invoice['invoice_number']."\n";
-                $note .= "Series: ".(string) $invoice['invoice_series']."\n";
-                $note .= "Hash: ".(string) $invoice['integrity_hash']."\n";
-                $note .= "Idempotency-Key: ".$payload['external']['idempotency_key']."\n";
-                if (!empty($pdfStore['ok']) && !empty($pdfStore['path'])) {
-                    $note .= "Official PDF: ".basename($pdfStore['path'])."\n";
+                $idempotencyLine = "Idempotency-Key: ".$payload['external']['idempotency_key'];
+                if (strpos($note, $idempotencyLine) === false) {
+                    if ($note !== '') $note .= "\n\n";
+                    $note .= "SAF-T Validator emission\n";
+                    $note .= "External invoice ID: ".(int) $invoice['id']."\n";
+                    $note .= "Invoice number: ".(string) $invoice['invoice_number']."\n";
+                    $note .= "Series: ".(string) $invoice['invoice_series']."\n";
+                    $note .= "Hash: ".(string) $invoice['integrity_hash']."\n";
+                    $note .= $idempotencyLine."\n";
+                    if (!empty($pdfStore['ok']) && !empty($pdfStore['path'])) {
+                        $note .= "Official PDF: ".basename($pdfStore['path'])."\n";
+                    }
+                    $sql = "UPDATE ".MAIN_DB_PREFIX."facture SET note_private = '".$db->escape($note)."' WHERE rowid = ".((int) $fact->id);
+                    $db->query($sql);
                 }
-                $sql = "UPDATE ".MAIN_DB_PREFIX."facture SET note_private = '".$db->escape($note)."' WHERE rowid = ".((int) $fact->id);
-                $db->query($sql);
                 setEventMessages((!empty($issue['data']['idempotent']) ? 'Fatura já emitida anteriormente: ' : 'Fatura emitida com sucesso: ').$invoice['invoice_number'], null, 'mesgs');
                 if (empty($pdfStore['ok'])) {
                     setEventMessages('A fatura foi emitida, mas o PDF oficial não foi guardado no Dolibarr: '.(!empty($pdfStore['error']) ? $pdfStore['error'] : 'erro desconhecido'), null, 'warnings');
@@ -359,19 +372,25 @@ print '<p class="opacitymedium" style="margin-top:12px;">Email do cliente é opc
 $recentInvoices = saft_recent_customer_invoices($db, 12);
 if (!empty($recentInvoices)) {
     print '<br><table class="noborder centpercent">';
-    print '<tr class="liste_titre"><td>ID</td><td>Ref.</td><td>Cliente</td><td class="center">Data</td><td class="right">Total</td><td class="center">Estado</td><td></td></tr>';
+    print '<tr class="liste_titre"><td>ID</td><td>Ref.</td><td>Cliente</td><td class="center">Data</td><td class="right">Total</td><td class="center">Estado</td><td class="center">Emitida</td><td></td></tr>';
     foreach ($recentInvoices as $row) {
         $statusLabel = ((int) $row->fk_statut === 0) ? 'Rascunho' : (((int) $row->fk_statut === 1) ? 'Pendente' : 'Fechada');
+        $isEmitted = saft_invoice_is_emitted_from_note($row->rowid, $row->note_private);
         $issueUrl = dol_buildpath('/custom/saft/issue.php?mainmenu=saft&leftmenu=saft_issue&facture_id='.(int) $row->rowid, 1);
         $cardUrl = DOL_URL_ROOT.'/compta/facture/card.php?id='.(int) $row->rowid;
-        print '<tr class="oddeven">';
+        print '<tr class="oddeven"'.($isEmitted ? ' style="background:#f5f5f5; color:#777;"' : '').'>';
         print '<td>'.(int) $row->rowid.'</td>';
         print '<td><a href="'.$cardUrl.'">'.dol_escape_htmltag($row->ref).'</a></td>';
         print '<td>'.dol_escape_htmltag($row->customer_name).'</td>';
         print '<td class="center">'.dol_print_date($db->jdate($row->datef), 'day').'</td>';
         print '<td class="right">'.price($row->total_ttc).'</td>';
         print '<td class="center">'.dol_escape_htmltag($statusLabel).'</td>';
-        print '<td class="right"><a class="button button-small" href="'.$issueUrl.'">Selecionar</a></td>';
+        print '<td class="center">'.($isEmitted ? '<span class="badge badge-status4">Sim</span>' : '<span class="badge badge-status0">Não</span>').'</td>';
+        if ($isEmitted) {
+            print '<td class="right"><span class="button button-small disabled opacitymedium">Emitida</span></td>';
+        } else {
+            print '<td class="right"><a class="button button-small" href="'.$issueUrl.'">Selecionar</a></td>';
+        }
         print '</tr>';
     }
     print '</table>';
