@@ -74,8 +74,18 @@ if ($rateLimit !== null && isset($rateLimit['limit'])) {
 print ' | <strong>file size limit:</strong> max 1mb';
 print '</div><br>';
 
+if (empty($apiToken)) {
+    print '<div class="warning">';
+    print '<strong>Não possui token definido.</strong><br>';
+    print 'A importação de faturas requer token privado configurado no setup do módulo. ';
+    print 'Caso não possua token ainda, solicite primeiro o seu token em FaturaWeb.com.';
+    print '</div>';
+}
+
 if ($action === 'upload') {
-    if (empty($_FILES['file']['tmp_name'])) {
+    if (empty($apiToken)) {
+        setEventMessages('Não possui token definido. Caso não possua token ainda, solicite primeiro o seu token em FaturaWeb.com.', null, 'errors');
+    } elseif (empty($_FILES['file']['tmp_name'])) {
         setEventMessages('Nenhum ficheiro enviado.', null, 'errors');
     } elseif (!empty($_FILES['file']['size']) && (int) $_FILES['file']['size'] > 1 * 1024 * 1024) {
         setEventMessages('file size limit max 1mb', null, 'errors');
@@ -463,38 +473,42 @@ if (($action === 'preview' || $sessionId !== '') && $sessionId !== '') {
 }
 
 print '<hr>';
-print '<form method="POST" enctype="multipart/form-data" id="saft-import-form">';
-print '<input type="hidden" name="action" value="upload">';
-print '<input type="hidden" name="token" value="'.newToken().'">';
-print '<div style="margin:8px 0;"><label><input type="file" name="file" accept=".xml" required id="saft-import-input"> Seleccionar XML</label></div>';
-print '<div id="saft-import-error" style="color:red; display:none; margin:8px 0;"></div>';
-print '<input type="submit" class="button" value="Enviar XML" id="saft-import-submit">';
-print '</form>';
+if (!empty($apiToken)) {
+    print '<form method="POST" enctype="multipart/form-data" id="saft-import-form">';
+    print '<input type="hidden" name="action" value="upload">';
+    print '<input type="hidden" name="token" value="'.newToken().'">';
+    print '<div style="margin:8px 0;"><label><input type="file" name="file" accept=".xml" required id="saft-import-input"> Seleccionar XML</label></div>';
+    print '<div id="saft-import-error" style="color:red; display:none; margin:8px 0;"></div>';
+    print '<input type="submit" class="button" value="Enviar XML" id="saft-import-submit">';
+    print '</form>';
 
-print '<script>';
-print '  const MAX_UPLOAD_BYTES = 1 * 1024 * 1024;';
-print '  const fileInput = document.getElementById("saft-import-input");';
-print '  const errorDiv = document.getElementById("saft-import-error");';
-print '  const submitBtn = document.getElementById("saft-import-submit");';
-print '  const form = document.getElementById("saft-import-form");';
-print '  fileInput.addEventListener("change", function() {';
-print '    errorDiv.style.display = "none";';
-print '    errorDiv.textContent = "";';
-print '    submitBtn.disabled = false;';
-print '    if (this.files && this.files[0] && this.files[0].size > MAX_UPLOAD_BYTES) {';
-print '      errorDiv.textContent = "file size limit max 1mb";';
-print '      errorDiv.style.display = "block";';
-print '      submitBtn.disabled = true;';
-print '    }';
-print '  });';
-print '  form.addEventListener("submit", function(e) {';
-print '    if (fileInput.files && fileInput.files[0] && fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
-print '      e.preventDefault();';
-print '      errorDiv.textContent = "file size limit max 1mb";';
-print '      errorDiv.style.display = "block";';
-print '    }';
-print '  });';
-print '</script>';
+    print '<script>';
+    print '  const MAX_UPLOAD_BYTES = 1 * 1024 * 1024;';
+    print '  const fileInput = document.getElementById("saft-import-input");';
+    print '  const errorDiv = document.getElementById("saft-import-error");';
+    print '  const submitBtn = document.getElementById("saft-import-submit");';
+    print '  const form = document.getElementById("saft-import-form");';
+    print '  fileInput.addEventListener("change", function() {';
+    print '    errorDiv.style.display = "none";';
+    print '    errorDiv.textContent = "";';
+    print '    submitBtn.disabled = false;';
+    print '    if (this.files && this.files[0] && this.files[0].size > MAX_UPLOAD_BYTES) {';
+    print '      errorDiv.textContent = "file size limit max 1mb";';
+    print '      errorDiv.style.display = "block";';
+    print '      submitBtn.disabled = true;';
+    print '    }';
+    print '  });';
+    print '  form.addEventListener("submit", function(e) {';
+    print '    if (fileInput.files && fileInput.files[0] && fileInput.files[0].size > MAX_UPLOAD_BYTES) {';
+    print '      e.preventDefault();';
+    print '      errorDiv.textContent = "file size limit max 1mb";';
+    print '      errorDiv.style.display = "block";';
+    print '    }';
+    print '  });';
+    print '</script>';
+} else {
+    print '<div class="opacitymedium">Use o menu Validador SAF-T para consultar/validar XML em modo público.</div>';
+}
 
 print '</div></div>';
 
