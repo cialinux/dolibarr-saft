@@ -30,15 +30,15 @@ $verifyTls = (bool) $apiRuntime['verify_tls'];
 $clientDebug = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 0);
 $capabilities = array();
 $capabilityError = '';
-$taxReasonCode = strtoupper(trim((string) GETPOST('tax_reason_code', 'alphanohtml')));
+$taxReasonCodes = saft_get_tax_reason_codes_from_request();
 
 function saft_tax_reason_options()
 {
     return array(
-        'M01' => 'M01 - Isenção art. 53.º do CIVA',
-        'M07' => 'M07 - Isenção art. 9.º do CIVA',
-        'M40' => 'M40 - IVA autoliquidação',
-        'M99' => 'M99 - Outro motivo fiscal',
+        'M01' => 'M01-Isenção art. 53.º do CIVA',
+        'M07' => 'M07-Isenção art. 9.º do CIVA',
+        'M40' => 'M40-IVA autoliquidação',
+        'M99' => 'M99-Outro motivo fiscal',
     );
 }
 
@@ -49,7 +49,40 @@ function saft_digits9($value)
     return $digits;
 }
 
-function saft_facture_to_issue_payload($fact, $user, $taxReasonCode = '')
+function saft_clean_tax_reason_code($value)
+{
+    return preg_replace('/[^A-Z0-9]/', '', strtoupper(trim((string) $value)));
+}
+
+function saft_get_tax_reason_codes_from_request()
+{
+    $raw = array();
+    if (!empty($_POST['tax_reason_code']) && is_array($_POST['tax_reason_code'])) {
+        $raw = $_POST['tax_reason_code'];
+    } elseif (!empty($_GET['tax_reason_code']) && is_array($_GET['tax_reason_code'])) {
+        $raw = $_GET['tax_reason_code'];
+    }
+
+    $codes = array();
+    foreach ($raw as $lineId => $code) {
+        $lineId = (int) $lineId;
+        $code = saft_clean_tax_reason_code($code);
+        if ($lineId > 0 && $code !== '') {
+            $codes[$lineId] = $code;
+        }
+    }
+
+    return $codes;
+}
+
+function saft_facture_line_id($line, $fallback)
+{
+    if (!empty($line->id)) return (int) $line->id;
+    if (!empty($line->rowid)) return (int) $line->rowid;
+    return (int) $fallback;
+}
+
+function saft_facture_to_issue_payload($fact, $user, $taxReasonCodes = array())
 {
     $thirdparty = $fact->thirdparty;
     $customerNif = saft_digits9(!empty($thirdparty->tva_intra) ? $thirdparty->tva_intra : '');
@@ -61,11 +94,13 @@ function saft_facture_to_issue_payload($fact, $user, $taxReasonCode = '')
     if (defined('Facture::TYPE_CREDIT_NOTE') && (int) $fact->type === Facture::TYPE_CREDIT_NOTE) $invoiceType = 'NC';
 
     $lines = array();
-    $taxReasonCode = strtoupper(trim((string) $taxReasonCode));
     $taxReasonOptions = saft_tax_reason_options();
-    foreach ((array) $fact->lines as $line) {
+    foreach ((array) $fact->lines as $idx => $line) {
         $vat = isset($line->tva_tx) ? (float) $line->tva_tx : 0;
+        $lineId = saft_facture_line_id($line, $idx + 1);
+        $taxReasonCode = !empty($taxReasonCodes[$lineId]) ? saft_clean_tax_reason_code($taxReasonCodes[$lineId]) : '';
         $lines[] = array(
+            'external_line_id' => (string) $lineId,
             'item_type' => (!empty($line->product_type) && (int) $line->product_type === 0) ? 'P' : 'S',
             'catalog_item_id' => !empty($line->fk_product) ? (int) $line->fk_product : null,
             'description' => trim((string) (!empty($line->desc) ? $line->desc : (!empty($line->label) ? $line->label : 'Linha Dolibarr'))),
@@ -102,14 +137,28 @@ function saft_facture_to_issue_payload($fact, $user, $taxReasonCode = '')
     );
 }
 
-function saft_payload_has_zero_vat_lines($payload)
+function saft_invalid_tax_reason_codes($taxReasonCodes)
 {
-    foreach ((array) $payload['invoice']['lines'] as $line) {
-        if (isset($line['tax_rate']) && (float) $line['tax_rate'] == 0.0) {
-            return true;
+    $options = saft_tax_reason_options();
+    $invalid = array();
+    foreach ((array) $taxReasonCodes as $lineId => $code) {
+        $code = saft_clean_tax_reason_code($code);
+        if ($code !== '' && empty($options[$code])) {
+            $invalid[] = '#'.((int) $lineId).' '.$code;
         }
     }
-    return false;
+    return $invalid;
+}
+
+function saft_payload_missing_zero_vat_tax_reasons($payload)
+{
+    $missing = array();
+    foreach ((array) $payload['invoice']['lines'] as $line) {
+        if (isset($line['tax_rate']) && (float) $line['tax_rate'] == 0.0 && empty($line['tax_reason_code'])) {
+            $missing[] = '#'.(!empty($line['external_line_id']) ? $line['external_line_id'] : '?').' '.(!empty($line['description']) ? $line['description'] : 'Linha sem descrição');
+        }
+    }
+    return $missing;
 }
 
 function saft_store_official_invoice_pdf($fact, $invoice, $apiUrlPreview, $apiToken, $verifyTls)
@@ -209,17 +258,19 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
         setEventMessages('Cliente da fatura Dolibarr não encontrado.', null, 'errors');
     } else {
         $fact->fetch_lines();
-        $payload = saft_facture_to_issue_payload($fact, $user, $taxReasonCode);
+        $payload = saft_facture_to_issue_payload($fact, $user, $taxReasonCodes);
+        $invalidTaxReasons = saft_invalid_tax_reason_codes($taxReasonCodes);
+        $missingTaxReasons = saft_payload_missing_zero_vat_tax_reasons($payload);
         if ($payload['invoice']['invoice_type'] !== 'FT') {
             setEventMessages('Nesta primeira fase, a emissão via Dolibarr suporta apenas faturas standard (FT).', null, 'errors');
         } elseif (empty($payload['invoice']['customer_nif'])) {
             setEventMessages('Cliente sem NIF válido. Corrija o terceiro no Dolibarr antes de emitir.', null, 'errors');
         } elseif (empty($payload['invoice']['lines'])) {
             setEventMessages('Fatura sem linhas para emitir.', null, 'errors');
-        } elseif ($taxReasonCode !== '' && !isset(saft_tax_reason_options()[$taxReasonCode])) {
-            setEventMessages('Motivo CIVA inválido.', null, 'errors');
-        } elseif (saft_payload_has_zero_vat_lines($payload) && empty($taxReasonCode)) {
-            setEventMessages('Selecione o motivo CIVA para linhas sem IVA antes de emitir.', null, 'errors');
+        } elseif (!empty($invalidTaxReasons)) {
+            setEventMessages('Motivo CIVA inválido nas linhas: '.implode(', ', $invalidTaxReasons), null, 'errors');
+        } elseif (!empty($missingTaxReasons)) {
+            setEventMessages('Selecione o motivo CIVA para cada linha sem IVA antes de emitir: '.implode(', ', $missingTaxReasons), null, 'errors');
         } else {
             $issue = saft_call_faturamento_issue_invoice($apiUrlPreview, $apiToken, $verifyTls, $payload, 70);
             if (empty($issue['data']['success']) || empty($issue['data']['invoice'])) {
@@ -255,21 +306,55 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
     setEventMessages('Emissão bloqueada: o SAF-T Validator ainda não autorizou este token para emissão fiscal via Dolibarr.', null, 'errors');
 }
 
+$formFact = null;
+if ($factureId > 0) {
+    $formFact = new Facture($db);
+    if ($formFact->fetch($factureId) > 0) {
+        $formFact->fetch_thirdparty();
+        $formFact->fetch_lines();
+    } else {
+        $formFact = null;
+    }
+}
+
 print '<form method="POST" style="margin-top:16px;">';
 print '<input type="hidden" name="token" value="'.newToken().'">';
 print '<input type="hidden" name="action" value="issue">';
 print '<label for="facture_id">ID da fatura Dolibarr</label><br>';
 print '<input type="number" min="1" name="facture_id" id="facture_id" value="'.((int) $factureId).'" required style="max-width:160px;"> ';
-print '<br><label for="tax_reason_code" style="margin-top:8px; display:inline-block;">Motivo CIVA para linhas sem IVA</label><br>';
-print '<select name="tax_reason_code" id="tax_reason_code" class="flat minwidth300">';
-print '<option value="">-- obrigatório se houver linha com IVA 0% --</option>';
-foreach (saft_tax_reason_options() as $code => $label) {
-    print '<option value="'.dol_escape_htmltag($code).'"'.($taxReasonCode === $code ? ' selected' : '').'>'.dol_escape_htmltag($label).'</option>';
+
+if ($formFact) {
+    print '<br><br><table class="noborder centpercent">';
+    print '<tr class="liste_titre"><td>Linha</td><td>Descrição</td><td class="right">IVA</td><td>Motivo CIVA</td></tr>';
+    foreach ((array) $formFact->lines as $idx => $line) {
+        $lineId = saft_facture_line_id($line, $idx + 1);
+        $vat = isset($line->tva_tx) ? (float) $line->tva_tx : 0;
+        $description = trim((string) (!empty($line->desc) ? $line->desc : (!empty($line->label) ? $line->label : 'Linha Dolibarr')));
+        $selectedCode = !empty($taxReasonCodes[$lineId]) ? saft_clean_tax_reason_code($taxReasonCodes[$lineId]) : '';
+        print '<tr class="oddeven">';
+        print '<td class="nowrap">#'.((int) $lineId).'</td>';
+        print '<td>'.dol_escape_htmltag($description).'</td>';
+        print '<td class="right">'.price($vat).'%</td>';
+        print '<td>';
+        if ($vat == 0.0) {
+            print '<select name="tax_reason_code['.((int) $lineId).']" class="flat minwidth300">';
+            print '<option value="">-- selecionar motivo desta linha --</option>';
+            foreach (saft_tax_reason_options() as $code => $label) {
+                print '<option value="'.dol_escape_htmltag($code).'"'.($selectedCode === $code ? ' selected' : '').'>'.dol_escape_htmltag($label).'</option>';
+            }
+            print '</select>';
+        } else {
+            print '<span class="opacitymedium">Não aplicável</span>';
+        }
+        print '</td>';
+        print '</tr>';
+    }
+    print '</table>';
 }
-print '</select> ';
+print '<br>';
 print '<input type="submit" class="button button-save" value="Emitir no SAF-T Validator"'.(empty($capabilities['can_issue_invoices']) ? ' disabled' : '').'>';
 print '</form>';
-print '<p class="opacitymedium" style="margin-top:12px;">Email do cliente é opcional para emissão. Repetir a chamada para a mesma fatura devolve a mesma fatura oficial por idempotência.</p>';
+print '<p class="opacitymedium" style="margin-top:12px;">Email do cliente é opcional para emissão. O motivo CIVA é definido individualmente em cada linha com IVA 0%. Repetir a chamada para a mesma fatura devolve a mesma fatura oficial por idempotência.</p>';
 
 $recentInvoices = saft_recent_customer_invoices($db, 12);
 if (!empty($recentInvoices)) {
