@@ -265,6 +265,8 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
         setEventMessages('Fatura Dolibarr não encontrada.', null, 'errors');
     } elseif ($fact->fetch_thirdparty() <= 0) {
         setEventMessages('Cliente da fatura Dolibarr não encontrado.', null, 'errors');
+    } elseif (saft_invoice_is_emitted_from_note($fact->id, $fact->note_private)) {
+        setEventMessages('Esta fatura Dolibarr já foi emitida no SAF-T Validator. Escolha outro ID de fatura.', null, 'errors');
     } else {
         $fact->fetch_lines();
         $payload = saft_facture_to_issue_payload($fact, $user, $taxReasonCodes);
@@ -319,11 +321,15 @@ if ($action === 'issue' && !empty($apiToken) && !empty($capabilities['can_issue_
 }
 
 $formFact = null;
+$formFactAlreadyEmitted = false;
 if ($factureId > 0) {
     $formFact = new Facture($db);
     if ($formFact->fetch($factureId) > 0) {
+        $formFactAlreadyEmitted = saft_invoice_is_emitted_from_note($formFact->id, $formFact->note_private);
         $formFact->fetch_thirdparty();
-        $formFact->fetch_lines();
+        if (!$formFactAlreadyEmitted) {
+            $formFact->fetch_lines();
+        }
     } else {
         $formFact = null;
     }
@@ -335,7 +341,9 @@ print '<input type="hidden" name="action" value="issue">';
 print '<label for="facture_id">ID da fatura Dolibarr</label><br>';
 print '<input type="number" min="1" name="facture_id" id="facture_id" value="'.((int) $factureId).'" required style="max-width:160px;"> ';
 
-if ($formFact) {
+if ($formFactAlreadyEmitted) {
+    print '<div class="warning" style="margin-top:12px;">Esta fatura Dolibarr já foi emitida no SAF-T Validator. Escolha outro ID de fatura.</div>';
+} elseif ($formFact) {
     print '<br><br><table class="noborder centpercent">';
     print '<tr class="liste_titre"><td>Linha</td><td>Descrição</td><td class="right">IVA</td><td>Motivo CIVA</td></tr>';
     foreach ((array) $formFact->lines as $idx => $line) {
@@ -364,7 +372,7 @@ if ($formFact) {
     print '</table>';
 }
 print '<br>';
-print '<input type="submit" class="button button-save" value="Emitir no SAF-T Validator"'.(empty($capabilities['can_issue_invoices']) ? ' disabled' : '').'>';
+print '<input type="submit" class="button button-save" value="Emitir no SAF-T Validator"'.((empty($capabilities['can_issue_invoices']) || $formFactAlreadyEmitted) ? ' disabled' : '').'>';
 print '</form>';
 print '<p class="opacitymedium" style="margin-top:12px;">Email do cliente é opcional para emissão. O motivo CIVA é definido individualmente em cada linha com IVA 0%. Repetir a chamada para a mesma fatura devolve a mesma fatura oficial por idempotência.</p>';
 
