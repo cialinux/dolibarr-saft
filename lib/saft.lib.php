@@ -1154,6 +1154,78 @@ function saft_call_faturamento_saft_export_monthly($configuredPreviewUrl, $apiTo
     );
 }
 
+function saft_call_faturamento_saft_export_download($configuredPreviewUrl, $apiToken, $verifyTls, $exportId, $timeout = 60)
+{
+    $url = saft_build_endpoint_url(
+        $configuredPreviewUrl,
+        '/api/dolibarr/private/faturamento/saft/exports/'.((int) $exportId).'/download'
+    );
+    if ($url === '') {
+        return array('xml_bytes' => null, 'filename' => '', 'status' => 0, 'error' => 'Missing API configuration.', 'attempts' => array());
+    }
+
+    $attempts = array();
+    $lastStatus = 0;
+    foreach (saft_build_api_candidates($url) as $candidateUrl) {
+        $headers = array('Accept: application/xml');
+        if ($apiToken !== '') {
+            $headers[] = 'X-API-Key: '.$apiToken;
+        }
+
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $candidateUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => $headers,
+        ));
+        if (!$verifyTls) {
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        }
+
+        $resp = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $lastStatus = $status;
+        $ct = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $hdrSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $finalUrl = (string) curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        $headersRaw = is_string($resp) ? substr($resp, 0, $hdrSize) : '';
+        $body = is_string($resp) ? substr($resp, $hdrSize) : '';
+        $attempts[] = array(
+            'url' => $candidateUrl,
+            'final_url' => $finalUrl,
+            'status' => $status,
+            'content_type' => $ct,
+            'curl_error' => $curlErr ? $curlErr : null,
+            'headers_head_800' => substr((string) $headersRaw, 0, 800),
+            'body_head_1200' => substr((string) $body, 0, 1200),
+        );
+
+        if ($curlErr) {
+            continue;
+        }
+        if ($status >= 200 && $status < 300 && $body !== '') {
+            $filename = '';
+            if (preg_match('/filename="([^"]+)"/i', $headersRaw, $m)) {
+                $filename = $m[1];
+            }
+            return array('xml_bytes' => $body, 'filename' => $filename, 'status' => $status, 'error' => null, 'attempts' => $attempts);
+        }
+
+        $decoded = json_decode($body, true);
+        if (is_array($decoded) && !empty($decoded['error'])) {
+            return array('xml_bytes' => null, 'filename' => '', 'status' => $status, 'error' => (string) $decoded['error'], 'attempts' => $attempts);
+        }
+    }
+
+    return array('xml_bytes' => null, 'filename' => '', 'status' => $lastStatus, 'error' => 'Falha ao obter SAF-T mensal no SAF-T Validator.', 'attempts' => $attempts);
+}
+
 function saft_call_faturamento_invoice_pdf($configuredPreviewUrl, $apiToken, $verifyTls, $invoiceId, $timeout = 60)
 {
     $url = saft_build_endpoint_url(

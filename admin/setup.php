@@ -444,9 +444,19 @@ if (!empty($apiToken)) {
                                 !empty($capabilities['can_issue_invoices']),
                                 !empty($capabilities['can_issue_invoices']) ? 'Token autorizado para emissão fiscal via Dolibarr.' : ($messages !== '' ? $messages : 'Token ainda não autorizado para emissão fiscal via Dolibarr.')
                         );
+                        saft_setup_access_row(
+                                'Emissão SAF-T mensal',
+                                !empty($capabilities['can_export_monthly_saft']),
+                                !empty($capabilities['can_export_monthly_saft']) ? 'Token autorizado para gerar e descarregar SAF-T mensal via Dolibarr.' : ($messages !== '' ? $messages : 'Token ainda não autorizado para SAF-T mensal via Dolibarr.')
+                        );
                 } else {
                         saft_setup_access_row(
                                 'Emissão de faturas',
+                                false,
+                                $capabilityError
+                        );
+                        saft_setup_access_row(
+                                'Emissão SAF-T mensal',
                                 false,
                                 $capabilityError
                         );

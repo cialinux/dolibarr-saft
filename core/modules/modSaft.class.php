@@ -150,12 +150,27 @@ class modSaft extends DolibarrModules
         $this->menu[$r++] = array(
             'fk_menu'    => 'fk_mainmenu=saft',
             'type'       => 'left',
-            'titre'      => 'Emitir fatura (API)',
+            'titre'      => 'Emitir fatura',
             'mainmenu'   => 'saft',
             'leftmenu'   => 'saft_issue',
             'url'        => '/custom/saft/issue.php',
             'langs'      => 'saft@saft',
             'position'   => 1120,
+            'enabled'    => 'isModEnabled("saft")',
+            'perms'      => '1',
+            'target'     => '',
+            'user'       => 2
+        );
+
+        $this->menu[$r++] = array(
+            'fk_menu'    => 'fk_mainmenu=saft',
+            'type'       => 'left',
+            'titre'      => 'Emitir SAF-T',
+            'mainmenu'   => 'saft',
+            'leftmenu'   => 'saft_export',
+            'url'        => '/custom/saft/export.php',
+            'langs'      => 'saft@saft',
+            'position'   => 1130,
             'enabled'    => 'isModEnabled("saft")',
             'perms'      => '1',
             'target'     => '',
