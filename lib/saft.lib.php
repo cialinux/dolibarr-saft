@@ -93,6 +93,59 @@ function saft_get_runtime_api_config()
     return saft_get_environment_config($env);
 }
 
+function saft_require_internal_user()
+{
+    global $user;
+
+    if (empty($user->id) || !empty($user->socid)) {
+        accessforbidden();
+    }
+}
+
+function saft_current_csrf_token()
+{
+    if (function_exists('currentToken')) {
+        return (string) currentToken();
+    }
+    if (!empty($_SESSION['newtoken'])) {
+        return (string) $_SESSION['newtoken'];
+    }
+    return '';
+}
+
+function saft_require_valid_post_token($action)
+{
+    if ((string) $action === '') {
+        return;
+    }
+    if (strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'POST') {
+        return;
+    }
+
+    $expected = saft_current_csrf_token();
+    $provided = (string) GETPOST('token', 'alphanohtml');
+    if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
+        accessforbidden('Invalid CSRF token');
+    }
+}
+
+function saft_user_has_right($module, $right)
+{
+    global $user;
+
+    if (!empty($user->admin)) {
+        return true;
+    }
+    return !empty($user->rights->{$module}->{$right});
+}
+
+function saft_require_right($module, $right)
+{
+    if (!saft_user_has_right($module, $right)) {
+        accessforbidden();
+    }
+}
+
 /* ============================================================
  * Helpers do módulo (API preview)
  * ============================================================ */

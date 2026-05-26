@@ -17,9 +17,13 @@ if (!$res) die("Include of main fails");
 
 require_once __DIR__.'/lib/saft.lib.php';
 
+saft_require_internal_user();
+saft_require_right('facture', 'lire');
+
 $langs->loadLangs(array('main', 'saft@saft'));
 
 $action = GETPOST('action', 'aZ09');
+saft_require_valid_post_token($action);
 $apiRuntime = saft_get_runtime_api_config();
 $apiUrlPreview = $apiRuntime['api_url'];
 $apiToken = getDolGlobalString('SAFT_API_TOKEN', '');

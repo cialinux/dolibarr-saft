@@ -30,10 +30,15 @@ require_once __DIR__.'/../class/SaftImport.class.php';
 require_once DOL_DOCUMENT_ROOT.'/societe/class/societe.class.php';
 require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 
+saft_require_internal_user();
+saft_require_right('societe', 'creer');
+saft_require_right('facture', 'creer');
+
 $langs->loadLangs(array('main', 'bills', 'companies', 'saft@saft'));
 $form = new Form($db);
 
 $action = GETPOST('action', 'aZ09');
+saft_require_valid_post_token($action);
 $sessionId = GETPOST('session_id', 'alphanohtml');
 
 $apiRuntime = saft_get_runtime_api_config();

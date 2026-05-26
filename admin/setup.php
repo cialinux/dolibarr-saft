@@ -127,8 +127,7 @@ $item->defaultFieldValue = '0';  // Desabilitado por padrão por segurança
 $item = $formSetup->newItem('SAFT_API_TOKEN');
 $item->nameText = 'SAFT API Token (OPCIONAL)';
 $item->helpText = '⚠️ DEIXE VAZIO para usar a API PÚBLICA (3 consultas/dia por IP).<br>'.
-                  'Ou insira um token privado gerado no dashboard do saft-validator para limites maiores.<br>'.
-                  '<strong>Nota:</strong> Validação de token temporariamente desabilitada - foco na API pública primeiro.';
+                  'Ou insira um token privado gerado no FaturaWeb.com para importação, emissão de faturas e SAF-T mensal.';
 $item->fieldAttr['placeholder'] = 'Deixe vazio para modo público';
 $item->fieldAttr['type'] = 'password';
 $item->cssClass = 'minwidth500';

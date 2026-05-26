@@ -19,9 +19,13 @@ require_once DOL_DOCUMENT_ROOT.'/compta/facture/class/facture.class.php';
 require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
 require_once __DIR__.'/lib/saft.lib.php';
 
+saft_require_internal_user();
+saft_require_right('facture', 'creer');
+
 $langs->loadLangs(array('main', 'bills', 'companies', 'saft@saft'));
 
 $action = GETPOST('action', 'aZ09');
+saft_require_valid_post_token($action);
 $factureId = GETPOSTINT('facture_id');
 $apiRuntime = saft_get_runtime_api_config();
 $apiUrlPreview = $apiRuntime['api_url'];

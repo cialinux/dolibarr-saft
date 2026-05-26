@@ -26,9 +26,12 @@ if (!$res) die("Include of main fails");
 require_once DOL_DOCUMENT_ROOT.'/core/class/html.formfile.class.php';
 require_once __DIR__.'/lib/saft.lib.php';
 
+saft_require_internal_user();
+
 $langs->loadLangs(array("saft@saft"));
 
 $action = GETPOST('action', 'aZ09');
+saft_require_valid_post_token($action);
 $page = max(1, GETPOSTINT('page'));
 $sessionId = GETPOST('session_id', 'alphanohtml');
 
@@ -37,7 +40,7 @@ $apiUrlPreview = $apiRuntime['api_url'];
 $apiToken = getDolGlobalString('SAFT_API_TOKEN', '');
 $verifyTls = (bool) $apiRuntime['verify_tls'];
 $perPage = max(1, (int) getDolGlobalInt('SAFT_PER_PAGE', 10));
-$clientDebug = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 1);
+$clientDebug = (bool) getDolGlobalInt('SAFT_CLIENT_DEBUG', 0);
 
 $error = null;
 $data = null;
